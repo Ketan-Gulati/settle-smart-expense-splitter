@@ -3,13 +3,12 @@ import { View, ScrollView, StyleSheet, ActivityIndicator, Modal, Pressable } fro
 import { useRouter } from 'expo-router';
 import { Text, Button, Input, Surface, AppHeader, MoneyDisplay, EmptyState } from '@/components';
 import { useAppTheme } from '@/hooks/useAppTheme';
-import { groupRepository, GroupEntity } from '@/repositories/groupRepository';
-import { userRepository, UserEntity } from '@/repositories/userRepository';
-import { balanceService } from '@/services/balanceService';
+import { SettleApiService } from '@/services/api/settleApi';
+import { GroupDTO, UserDTO } from '@/services/api/types';
 import { useAppStore } from '@/store/appStore';
 
 interface GroupListItem {
-  group: GroupEntity;
+  group: GroupDTO;
   netBalanceMinor: number;
 }
 
@@ -17,33 +16,37 @@ export default function GroupsScreen() {
   const theme = useAppTheme();
   const router = useRouter();
   const dataVersion = useAppStore((s) => s.dataVersion);
+  const notifyDataChanged = useAppStore((s) => s.notifyDataChanged);
 
-  const [currentUser, setCurrentUser] = useState<UserEntity | null>(null);
+  const [currentUser, setCurrentUser] = useState<UserDTO | null>(null);
   const [groupItems, setGroupItems] = useState<GroupListItem[]>([]);
   const [loading, setLoading] = useState(true);
 
   // Create Group Modal State
   const [modalVisible, setModalVisible] = useState(false);
   const [groupName, setGroupName] = useState('');
-  const [membersInput, setMembersInput] = useState('');
   const [creating, setCreating] = useState(false);
   const [createError, setCreateError] = useState<string | null>(null);
 
   const loadGroups = useCallback(async () => {
     try {
       setLoading(true);
-      const user = await userRepository.getOrCreateDefaultUser();
+      const [user, groups] = await Promise.all([
+        SettleApiService.getMe(),
+        SettleApiService.getGroups(),
+      ]);
       setCurrentUser(user);
-      const list = await groupRepository.findAll();
 
-      const items: GroupListItem[] = [];
-      for (const group of list) {
-        const balRes = await balanceService.getGroupBalances(group.id);
-        const userNet = balRes.success
-          ? balRes.data.userBalances[user.id]?.netBalanceMinor || 0
-          : 0;
-        items.push({ group, netBalanceMinor: userNet });
-      }
+      const items: GroupListItem[] = await Promise.all(
+        groups.map(async (group) => {
+          try {
+            const balRes = await SettleApiService.getGroupBalances(group.id);
+            return { group, netBalanceMinor: balRes.userNetBalanceMinor };
+          } catch {
+            return { group, netBalanceMinor: 0 };
+          }
+        })
+      );
 
       setGroupItems(items);
     } catch (err) {
@@ -62,31 +65,19 @@ export default function GroupsScreen() {
       setCreateError('Group name is required.');
       return;
     }
-    if (!currentUser) return;
 
     try {
       setCreating(true);
       setCreateError(null);
 
-      const memberNames = membersInput
-        .split(',')
-        .map((m) => m.trim())
-        .filter((m) => m.length > 0);
-
-      const newGroup = await groupRepository.create({
-        name: groupName.trim(),
-        ownerId: currentUser.id,
-        initialMemberNames: memberNames,
-        currency: 'INR',
-      });
+      const newGroup = await SettleApiService.createGroup(groupName.trim(), 'INR');
 
       setGroupName('');
-      setMembersInput('');
       setModalVisible(false);
-      await loadGroups();
+      notifyDataChanged();
       router.push(`/groups/${newGroup.id}` as any);
-    } catch (err) {
-      setCreateError(err instanceof Error ? err.message : 'Failed to create group');
+    } catch (err: any) {
+      setCreateError(err.message || 'Failed to create group');
     } finally {
       setCreating(false);
     }
@@ -99,7 +90,7 @@ export default function GroupsScreen() {
   return (
     <View style={[styles.container, { backgroundColor: theme.colors.background }]}>
       <AppHeader
-        userName={currentUser?.name || 'Alex'}
+        userName={currentUser?.name || 'Ketan'}
         onSettingsPress={() => router.push('/settings' as any)}
       />
 
@@ -112,7 +103,7 @@ export default function GroupsScreen() {
           title="No groups yet"
           description="Create a group for your trip, housemates, or dinner to start sharing expenses."
           actionLabel="Create First Group"
-          onAction={() => setModalVisible(true)}
+          onAction={() => router.push('/groups/new' as any)}
           style={styles.empty}
         />
       ) : (
@@ -123,7 +114,7 @@ export default function GroupsScreen() {
               Groups
             </Text>
             <Pressable
-              onPress={() => setModalVisible(true)}
+              onPress={() => router.push('/groups/new' as any)}
               style={[styles.plusButton, { backgroundColor: theme.colors.primary }]}
             >
               <Text variant="title" weight="bold" color={theme.colors.primaryForeground}>
@@ -152,25 +143,21 @@ export default function GroupsScreen() {
                     },
                   ]}
                 >
-                  {/* Left thumbnail initial block */}
+                  {/* Left Initial Badge */}
                   <View
                     style={[
                       styles.thumbnail,
                       {
-                        backgroundColor: group.name.includes('Apartment')
-                          ? '#0F172A'
-                          : group.name.includes('Dinner')
-                            ? '#E2E8F0'
-                            : theme.colors.surfaceElevated,
+                        backgroundColor: theme.colors.surfaceElevated,
+                        borderColor: theme.colors.border,
+                        borderWidth: 1,
                       },
                     ]}
                   >
                     <Text
                       variant="title"
                       weight="bold"
-                      color={
-                        group.name.includes('Apartment') ? '#FFFFFF' : theme.colors.textPrimary
-                      }
+                      color={theme.colors.textPrimary}
                     >
                       {getGroupInitial(group.name)}
                     </Text>
@@ -182,7 +169,7 @@ export default function GroupsScreen() {
                       {group.name}
                     </Text>
                     <Text variant="caption" color={theme.colors.textMuted}>
-                      {group.members?.length || 1} members
+                      {group.memberCount || 1} members
                     </Text>
                   </View>
 
@@ -232,13 +219,6 @@ export default function GroupsScreen() {
               placeholder="e.g. Ski Trip '24, Apartment 4B"
               value={groupName}
               onChangeText={setGroupName}
-            />
-            <Input
-              label="Members (comma-separated)"
-              placeholder="e.g. Rohit, Raj, Aman"
-              value={membersInput}
-              onChangeText={setMembersInput}
-              helperText="You are automatically included as the group owner."
             />
 
             {createError && (

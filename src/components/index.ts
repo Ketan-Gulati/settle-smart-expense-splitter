@@ -18,3 +18,4 @@ export * from './ExpenseActivityRow';
 export * from './NumericKeypad';
 export * from './SettlementPathCard';
 export * from './Icon';
+export * from './onboarding/SettleWorldScene';

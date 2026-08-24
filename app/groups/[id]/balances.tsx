@@ -1,12 +1,10 @@
 import { useEffect, useState, useCallback } from 'react';
 import { View, ScrollView, StyleSheet, ActivityIndicator, Pressable } from 'react-native';
-import { useLocalSearchParams, useRouter } from 'expo-router';
-import { Text, DetailHeader, MoneyDisplay, Avatar, ExpenseActivityRow } from '@/components';
+import { useLocalSearchParams, useRouter, Stack } from 'expo-router';
+import { Text, DetailHeader, MoneyDisplay, Avatar, ExpenseActivityRow, EmptyState } from '@/components';
 import { useAppTheme } from '@/hooks/useAppTheme';
-import { groupRepository, GroupEntity } from '@/repositories/groupRepository';
-import { userRepository, UserEntity } from '@/repositories/userRepository';
-import { expenseRepository } from '@/repositories/expenseRepository';
-import { ExpenseEntity } from '@/domain/expense/expense';
+import { SettleApiService } from '@/services/api/settleApi';
+import { GroupDTO, PersonBalanceDetailDTO } from '@/services/api/types';
 import { useAppStore } from '@/store/appStore';
 
 export default function GroupBalancesScreen() {
@@ -15,45 +13,37 @@ export default function GroupBalancesScreen() {
   const router = useRouter();
   const dataVersion = useAppStore((s) => s.dataVersion);
 
-  const [group, setGroup] = useState<GroupEntity | null>(null);
-  const [currentUser, setCurrentUser] = useState<UserEntity | null>(null);
-  const [sharedExpenses, setSharedExpenses] = useState<ExpenseEntity[]>([]);
-  const [targetMember, setTargetMember] = useState<UserEntity | null>(null);
+  const [group, setGroup] = useState<GroupDTO | null>(null);
+  const [detail, setDetail] = useState<PersonBalanceDetailDTO | null>(null);
   const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
 
   const loadData = useCallback(async () => {
-    if (!id) return;
+    if (!id) {
+      setError('No group ID provided');
+      setLoading(false);
+      return;
+    }
     try {
       setLoading(true);
-      const user = await userRepository.getOrCreateDefaultUser();
-      setCurrentUser(user);
-
-      const groupData = await groupRepository.findById(id);
+      setError(null);
+      const groupData = await SettleApiService.getGroupDetails(id);
       setGroup(groupData);
 
-      // Select target member based on URL query param or fallback to first non-user member
-      let otherMember: UserEntity | null = null;
-      if (targetUserId && groupData?.members) {
-        otherMember = groupData.members.find((m) => m.id === targetUserId) || null;
+      let targetId = targetUserId;
+      if (!targetId && groupData.members) {
+        const currentUser = await SettleApiService.getMe();
+        const otherMember = groupData.members.find((m) => m.userId !== currentUser.id);
+        targetId = otherMember?.userId;
       }
-      if (!otherMember && groupData?.members) {
-        otherMember = groupData.members.find((m) => m.id !== user.id) || null;
-      }
-      setTargetMember(otherMember);
 
-      const allExpenses = await expenseRepository.findByGroup(id);
-      // Strictly filter to shared expenses involving both current user and target member
-      const bilateral = allExpenses.filter((exp) => {
-        const isParticipantOrPayerUser =
-          exp.payerId === user.id || exp.splits.some((s) => s.userId === user.id);
-        const isParticipantOrPayerOther =
-          otherMember &&
-          (exp.payerId === otherMember.id || exp.splits.some((s) => s.userId === otherMember.id));
-        return isParticipantOrPayerUser && isParticipantOrPayerOther;
-      });
-      setSharedExpenses(bilateral);
-    } catch (err) {
-      console.error('Failed to load balance details:', err);
+      if (targetId) {
+        const balanceDetail = await SettleApiService.getPersonBalanceDetail(id, targetId);
+        setDetail(balanceDetail);
+      }
+    } catch (err: any) {
+      console.error('Failed to load person balance details from backend:', err);
+      setError(err?.message || 'Group not found or access denied.');
     } finally {
       setLoading(false);
     }
@@ -63,40 +53,35 @@ export default function GroupBalancesScreen() {
     loadData();
   }, [loadData, dataVersion]);
 
-  if (loading || !group) {
+  if (loading) {
     return (
       <View style={[styles.center, { backgroundColor: theme.colors.background }]}>
+        <Stack.Screen options={{ headerShown: false }} />
         <ActivityIndicator size="large" color={theme.colors.primary} />
       </View>
     );
   }
 
-  const personName = targetMember?.name || 'Member';
-
-  // Calculate bilateral pairwise metrics from real ledger
-  let youPaidForPersonMinor = 0;
-  let personPaidForYouMinor = 0;
-
-  for (const exp of sharedExpenses) {
-    const youPaid = exp.payerId === currentUser?.id;
-    const personPaid = exp.payerId === targetMember?.id;
-
-    if (youPaid) {
-      const personSplit = exp.splits.find((s) => s.userId === targetMember?.id);
-      if (personSplit) {
-        youPaidForPersonMinor += personSplit.amountMinor;
-      }
-    } else if (personPaid) {
-      const youSplit = exp.splits.find((s) => s.userId === currentUser?.id);
-      if (youSplit) {
-        personPaidForYouMinor += youSplit.amountMinor;
-      }
-    }
+  if (error || !group || !detail) {
+    return (
+      <View style={[styles.container, { backgroundColor: theme.colors.background }]}>
+        <Stack.Screen options={{ headerShown: false }} />
+        <DetailHeader title="Balance Details" onBackPress={() => router.replace('/(tabs)/groups' as any)} />
+        <View style={{ padding: 24, marginTop: 40 }}>
+          <EmptyState
+            title="Group Not Found"
+            description={error || 'This group may have been deleted or the identifier is invalid.'}
+            actionLabel="← Back to Groups"
+            onAction={() => router.replace('/(tabs)/groups' as any)}
+          />
+        </View>
+      </View>
+    );
   }
 
-  const netBalanceWithPersonMinor = youPaidForPersonMinor - personPaidForYouMinor;
-  const isOwed = netBalanceWithPersonMinor > 0;
-  const isOwing = netBalanceWithPersonMinor < 0;
+  const personName = detail.person.name;
+  const isOwed = detail.netBalanceWithPersonMinor > 0;
+  const isOwing = detail.netBalanceWithPersonMinor < 0;
 
   return (
     <View style={[styles.container, { backgroundColor: theme.colors.background }]}>
@@ -127,16 +112,16 @@ export default function GroupBalancesScreen() {
           </Text>
 
           <MoneyDisplay
-            amountMinor={Math.abs(netBalanceWithPersonMinor)}
+            amountMinor={Math.abs(detail.netBalanceWithPersonMinor)}
             currency={group.currency}
             variant="hero"
             sentiment={isOwed ? 'positive' : isOwing ? 'negative' : 'neutral'}
             style={styles.heroAmount}
           />
 
-          <View style={styles.sharedCountPill}>
+          <View style={[styles.sharedCountPill, { backgroundColor: theme.colors.surfaceSubtle }]}>
             <Text variant="caption" color={theme.colors.textSecondary} weight="medium">
-              Across {sharedExpenses.length} shared expense{sharedExpenses.length > 1 ? 's' : ''}
+              Across {detail.sharedExpenseCount} shared expense{detail.sharedExpenseCount > 1 ? 's' : ''}
             </Text>
           </View>
         </View>
@@ -144,18 +129,14 @@ export default function GroupBalancesScreen() {
         {/* 3. Recent Activity Section */}
         <View style={styles.sectionHeader}>
           <Text variant="label" color={theme.colors.textMuted} style={styles.sectionLabel}>
-            SHARED ACTIVITY ({sharedExpenses.length})
+            SHARED ACTIVITY ({detail.sharedExpenseCount})
           </Text>
         </View>
 
-        <View style={styles.activityCard}>
-          {sharedExpenses.map((exp, idx) => {
-            const isYouPayer = exp.payerId === currentUser?.id;
-            const youSplit = exp.splits.find((s) => s.userId === currentUser?.id);
-            const otherSplit = exp.splits.find((s) => s.userId === targetMember?.id);
-            const impactMinor = isYouPayer
-              ? otherSplit?.amountMinor || 0
-              : -(youSplit?.amountMinor || 0);
+        <View style={[styles.activityCard, { borderColor: theme.colors.border, backgroundColor: theme.colors.surface }]}>
+          {detail.sharedExpenses.map((exp, idx) => {
+            const isYouPayer = exp.payerName === 'You' || exp.payerName === group.name;
+            const impactMinor = isYouPayer ? exp.personShareMinor : -exp.userShareMinor;
 
             return (
               <ExpenseActivityRow
@@ -163,12 +144,12 @@ export default function GroupBalancesScreen() {
                 title={exp.description}
                 groupName={group.name}
                 timestamp={new Date(exp.date).toLocaleDateString()}
-                payerName={isYouPayer ? 'You' : personName}
+                payerName={exp.payerName}
                 totalAmountMinor={exp.amountMinor}
                 userShareMinor={impactMinor}
                 currency={exp.currency}
                 categoryIconName="receipt-outline"
-                showDivider={idx < sharedExpenses.length - 1}
+                showDivider={idx < detail.sharedExpenses.length - 1}
                 onPress={() => router.push(`/expenses/${exp.id}` as any)}
               />
             );
@@ -182,13 +163,13 @@ export default function GroupBalancesScreen() {
           </Text>
         </View>
 
-        <View style={[styles.breakdownCard, { borderColor: theme.colors.borderSubtle }]}>
+        <View style={[styles.breakdownCard, { borderColor: theme.colors.border, backgroundColor: theme.colors.surfaceSubtle }]}>
           <View style={styles.breakdownLine}>
             <Text variant="bodySecondary" color={theme.colors.textSecondary}>
               You paid for {personName}
             </Text>
             <MoneyDisplay
-              amountMinor={youPaidForPersonMinor}
+              amountMinor={detail.youPaidForPersonMinor}
               currency={group.currency}
               variant="medium"
               sentiment="neutral"
@@ -200,7 +181,7 @@ export default function GroupBalancesScreen() {
               {personName} paid for you
             </Text>
             <MoneyDisplay
-              amountMinor={personPaidForYouMinor}
+              amountMinor={detail.personPaidForYouMinor}
               currency={group.currency}
               variant="medium"
               sentiment="neutral"
@@ -214,7 +195,7 @@ export default function GroupBalancesScreen() {
               {isOwed ? 'NET owed to you' : isOwing ? 'NET you owe' : 'NET balance'}
             </Text>
             <MoneyDisplay
-              amountMinor={Math.abs(netBalanceWithPersonMinor)}
+              amountMinor={Math.abs(detail.netBalanceWithPersonMinor)}
               currency={group.currency}
               variant="large"
               sentiment={isOwed ? 'positive' : isOwing ? 'negative' : 'neutral'}

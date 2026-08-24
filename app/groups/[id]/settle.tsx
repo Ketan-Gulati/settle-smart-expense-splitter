@@ -1,54 +1,95 @@
 import { useEffect, useState, useCallback } from 'react';
-import { View, ScrollView, StyleSheet, ActivityIndicator, Pressable } from 'react-native';
-import { useLocalSearchParams, useRouter } from 'expo-router';
-import { Text, DetailHeader, StatusBadge, SettlementPathCard, EmptyState } from '@/components';
+import { View, ScrollView, StyleSheet, ActivityIndicator, Pressable, Modal, TextInput } from 'react-native';
+import { useLocalSearchParams, useRouter, Stack } from 'expo-router';
+import { Text, DetailHeader, StatusBadge, SettlementPathCard, EmptyState, Button } from '@/components';
 import { useAppTheme } from '@/hooks/useAppTheme';
-import { groupRepository, GroupEntity } from '@/repositories/groupRepository';
-import { userRepository, UserEntity } from '@/repositories/userRepository';
-import { settlementService } from '@/services/settlementService';
-import { SettlementPlan, SettlementExplanation } from '@/domain/settlement/settlementOptimizer';
+import { SettleApiService } from '@/services/api/settleApi';
+import { GroupDTO, UserDTO } from '@/services/api/types';
 import { useAppStore } from '@/store/appStore';
+
+interface TransferPlanItem {
+  fromUserId: string;
+  fromUserName: string;
+  toUserId: string;
+  toUserName: string;
+  amountMinor: number;
+}
 
 export default function SmartSettlementScreen() {
   const { id } = useLocalSearchParams<{ id: string }>();
   const theme = useAppTheme();
   const router = useRouter();
   const dataVersion = useAppStore((s) => s.dataVersion);
+  const notifyDataChanged = useAppStore((s) => s.notifyDataChanged);
 
-  const [group, setGroup] = useState<GroupEntity | null>(null);
-  const [currentUser, setCurrentUser] = useState<UserEntity | null>(null);
-  const [plan, setPlan] = useState<SettlementPlan | null>(null);
-  const [explanations, setExplanations] = useState<Record<string, SettlementExplanation>>({});
+  const [group, setGroup] = useState<GroupDTO | null>(null);
+  const [currentUser, setCurrentUser] = useState<UserDTO | null>(null);
+  const [transfers, setTransfers] = useState<TransferPlanItem[]>([]);
   const [loading, setLoading] = useState(true);
-  const [showAllPayments, setShowAllPayments] = useState(false);
+
+  // Settlement Recording Modal State
+  const [recordModalVisible, setRecordModalVisible] = useState(false);
+  const [selectedTransfer, setSelectedTransfer] = useState<TransferPlanItem | null>(null);
+  const [settlementNote, setSettlementNote] = useState('');
+  const [recording, setRecording] = useState(false);
+  const [recordError, setRecordError] = useState<string | null>(null);
+
+  const [error, setError] = useState<string | null>(null);
 
   const loadData = useCallback(async () => {
-    if (!id) return;
+    if (!id) {
+      setError('No group ID provided');
+      setLoading(false);
+      return;
+    }
     try {
       setLoading(true);
-      const user = await userRepository.getOrCreateDefaultUser();
-      setCurrentUser(user);
+      setError(null);
+      const [user, groupData, groupBals] = await Promise.all([
+        SettleApiService.getMe(),
+        SettleApiService.getGroupDetails(id),
+        SettleApiService.getGroupBalances(id),
+      ]);
 
-      const groupData = await groupRepository.findById(id);
+      setCurrentUser(user);
       setGroup(groupData);
 
-      const planRes = await settlementService.getOptimizedSettlementPlan(id);
-      if (planRes.success) {
-        setPlan(planRes.data);
+      const computedTransfers: TransferPlanItem[] = [];
+      const debtors = groupBals.members.filter((m) => m.netBalanceMinor < 0).map((m) => ({ ...m }));
+      const creditors = groupBals.members.filter((m) => m.netBalanceMinor > 0).map((m) => ({ ...m }));
 
-        // Preload explanations for transfers
-        const expMap: Record<string, SettlementExplanation> = {};
-        for (const t of planRes.data.transfers) {
-          const key = `${t.fromUserId}_${t.toUserId}`;
-          const expRes = await settlementService.explainTransfer(id, t);
-          if (expRes.success) {
-            expMap[key] = expRes.data;
-          }
+      let dIdx = 0;
+      let cIdx = 0;
+
+      while (dIdx < debtors.length && cIdx < creditors.length) {
+        const debtor = debtors[dIdx]!;
+        const creditor = creditors[cIdx]!;
+
+        const debtAmt = Math.abs(debtor.netBalanceMinor);
+        const creditAmt = creditor.netBalanceMinor;
+        const transferAmt = Math.min(debtAmt, creditAmt);
+
+        if (transferAmt > 0) {
+          computedTransfers.push({
+            fromUserId: debtor.userId,
+            fromUserName: debtor.name,
+            toUserId: creditor.userId,
+            toUserName: creditor.name,
+            amountMinor: transferAmt,
+          });
+
+          debtor.netBalanceMinor += transferAmt;
+          creditor.netBalanceMinor -= transferAmt;
         }
-        setExplanations(expMap);
+
+        if (debtor.netBalanceMinor === 0) dIdx++;
+        if (creditor.netBalanceMinor === 0) cIdx++;
       }
-    } catch (err) {
-      console.error('Failed to load settlement plan:', err);
+
+      setTransfers(computedTransfers);
+    } catch (err: any) {
+      console.error('Failed to load settlement data:', err);
+      setError(err?.message || 'Group not found or you are not a member of this group.');
     } finally {
       setLoading(false);
     }
@@ -58,26 +99,57 @@ export default function SmartSettlementScreen() {
     loadData();
   }, [loadData, dataVersion]);
 
-  if (loading || !group) {
+  const handleRecordSettlement = async () => {
+    if (!selectedTransfer || !id) return;
+    try {
+      setRecording(true);
+      setRecordError(null);
+
+      await SettleApiService.recordSettlement(
+        id,
+        selectedTransfer.toUserId,
+        selectedTransfer.amountMinor,
+        settlementNote.trim() || undefined
+      );
+
+      setRecordModalVisible(false);
+      setSettlementNote('');
+      setSelectedTransfer(null);
+      notifyDataChanged();
+    } catch (err: any) {
+      setRecordError(err.message || 'Failed to record settlement');
+    } finally {
+      setRecording(false);
+    }
+  };
+
+  if (loading) {
     return (
       <View style={[styles.center, { backgroundColor: theme.colors.background }]}>
+        <Stack.Screen options={{ headerShown: false }} />
         <ActivityIndicator size="large" color={theme.colors.primary} />
       </View>
     );
   }
 
-  const getUserName = (userId: string) => {
-    if (currentUser && userId === currentUser.id) return 'You';
-    return group.members?.find((m) => m.id === userId)?.name || 'Member';
-  };
+  if (error || !group) {
+    return (
+      <View style={[styles.container, { backgroundColor: theme.colors.background }]}>
+        <Stack.Screen options={{ headerShown: false }} />
+        <DetailHeader title="Settlement" onBackPress={() => router.replace('/(tabs)/groups' as any)} />
+        <View style={styles.errorBox}>
+          <EmptyState
+            title="Group Not Found"
+            description={error || 'This group may have been deleted or the link is invalid.'}
+            actionLabel="← Back to Groups"
+            onAction={() => router.replace('/(tabs)/groups' as any)}
+          />
+        </View>
+      </View>
+    );
+  }
 
-  const transfers = plan?.transfers || [];
-  const origCount = plan?.originalObligationsCount || 0;
-  const optCount = plan?.totalTransfersCount || 0;
-  const isReduced = optCount < origCount && optCount > 0;
-  const isSettled = optCount === 0;
-
-  const displayedTransfers = showAllPayments ? transfers : transfers.slice(0, 3);
+  const isSettled = transfers.length === 0;
 
   return (
     <View style={[styles.container, { backgroundColor: theme.colors.background }]}>
@@ -106,16 +178,12 @@ export default function SmartSettlementScreen() {
         {/* 4. Dynamic Headline & Reduction Badge */}
         <View style={styles.statusRow}>
           <Text variant="headline" weight="bold" color={theme.colors.textPrimary}>
-            {isSettled
-              ? 'All Settled Up'
-              : isReduced
-                ? 'Optimization Complete'
-                : 'Settlement Ready'}
+            {isSettled ? 'All Settled Up' : 'Settlement Ready'}
           </Text>
 
-          {isReduced && plan && plan.transferReductionPercentage > 0 && (
+          {!isSettled && (
             <StatusBadge
-              label={`${plan.transferReductionPercentage}% FEWER TRANSFERS`}
+              label="OPTIMAL PATH"
               variant="positive"
               size="small"
               style={styles.pillBadge}
@@ -123,33 +191,15 @@ export default function SmartSettlementScreen() {
           )}
         </View>
 
-        {/* 5. Dynamic Metrics: Only strike through if reduction actually happened */}
+        {/* 5. Dynamic Metrics */}
         {!isSettled && (
           <View style={styles.metricsHero}>
-            {isReduced ? (
-              <>
-                <Text
-                  variant="title"
-                  weight="bold"
-                  color={theme.colors.textMuted}
-                  style={styles.strikethroughText}
-                >
-                  {origCount} obligations
-                </Text>
-                <Text variant="displayHero" weight="bold" style={styles.paymentsCountText}>
-                  {optCount} payment{optCount > 1 ? 's' : ''}
-                </Text>
-              </>
-            ) : (
-              <View style={styles.neutralObligationsRow}>
-                <Text variant="displayHero" weight="bold" style={styles.paymentsCountText}>
-                  {optCount} payment{optCount > 1 ? 's' : ''}
-                </Text>
-                <Text variant="bodySecondary" color={theme.colors.textMuted}>
-                  Direct resolution for {origCount} obligation{origCount > 1 ? 's' : ''}
-                </Text>
-              </View>
-            )}
+            <Text variant="displayHero" weight="bold" style={styles.paymentsCountText}>
+              {transfers.length} payment{transfers.length > 1 ? 's' : ''}
+            </Text>
+            <Text variant="bodySecondary" color={theme.colors.textMuted}>
+              Direct resolution to settle all group balances
+            </Text>
           </View>
         )}
 
@@ -160,7 +210,7 @@ export default function SmartSettlementScreen() {
           Optimized Payment Path
         </Text>
 
-        {transfers.length === 0 ? (
+        {isSettled ? (
           <EmptyState
             title="All Settled Up"
             description={`Everyone in ${group.name} is completely settled. No payments are needed.`}
@@ -169,51 +219,95 @@ export default function SmartSettlementScreen() {
           />
         ) : (
           <View style={styles.pathCardStack}>
-            {/* Every single payment rendered with the unified SettlementPathCard */}
-            {displayedTransfers.map((t, idx) => {
-              const expKey = `${t.fromUserId}_${t.toUserId}`;
-              const explanation = explanations[expKey]?.rationale;
-              const debtor = getUserName(t.fromUserId);
-              const creditor = getUserName(t.toUserId);
+            {transfers.map((t, idx) => {
+              const isDebtorUser = currentUser?.id === t.fromUserId;
+              const isCreditorUser = currentUser?.id === t.toUserId;
+
+              const debtorName = isDebtorUser ? 'You' : t.fromUserName;
+              const creditorName = isCreditorUser ? 'You' : t.toUserName;
 
               return (
-                <SettlementPathCard
+                <Pressable
                   key={`${t.fromUserId}_${t.toUserId}_${idx}`}
-                  debtorName={debtor}
-                  creditorName={creditor}
-                  amountMinor={t.amountMinor}
-                  currency={group.currency}
-                  isDirectPath={true}
-                  explanationQuestion={
-                    debtor === 'You'
-                      ? `Why am I paying ${creditor}?`
-                      : `Why is ${debtor} paying ${creditor}?`
-                  }
-                  explanationAnswer={
-                    explanation ||
-                    `This payment resolves net group obligations between ${debtor} and ${creditor} in the minimum number of transactions.`
-                  }
-                />
+                  onPress={() => {
+                    if (isDebtorUser) {
+                      setSelectedTransfer(t);
+                      setRecordModalVisible(true);
+                    }
+                  }}
+                >
+                  <SettlementPathCard
+                    debtorName={debtorName}
+                    creditorName={creditorName}
+                    amountMinor={t.amountMinor}
+                    currency={group.currency}
+                    isDirectPath={true}
+                    explanationQuestion={
+                      isDebtorUser
+                        ? `Why am I paying ${creditorName}? (Tap to Settle)`
+                        : `Why is ${debtorName} paying ${creditorName}?`
+                    }
+                    explanationAnswer={`This direct transfer of ₹${(t.amountMinor / 100).toFixed(2)} completely settles ${debtorName}'s net balance with ${creditorName}.`}
+                  />
+                </Pressable>
               );
             })}
-
-            {/* View More Payments CTA when multiple payments exist */}
-            {transfers.length > 3 && !showAllPayments && (
-              <Pressable onPress={() => setShowAllPayments(true)} style={styles.viewMoreBtn}>
-                <Text
-                  variant="caption"
-                  weight="bold"
-                  color={theme.colors.textSecondary}
-                  style={styles.viewMoreText}
-                >
-                  VIEW {transfers.length - 3} MORE PAYMENT
-                  {transfers.length - 3 > 1 ? 'S' : ''}
-                </Text>
-              </Pressable>
-            )}
           </View>
         )}
       </ScrollView>
+
+      {/* Record Settlement Modal */}
+      <Modal visible={recordModalVisible} animationType="slide" transparent>
+        <View style={[styles.modalOverlay, { backgroundColor: theme.colors.overlay }]}>
+          <View style={[styles.modalContent, { backgroundColor: theme.colors.surface }]}>
+            <Text variant="headline" style={styles.modalTitle}>
+              Record Payment
+            </Text>
+            {selectedTransfer && (
+              <Text variant="body" color={theme.colors.textSecondary} style={{ marginBottom: 12 }}>
+                Confirming payment of ₹{(selectedTransfer.amountMinor / 100).toFixed(2)} to {selectedTransfer.toUserName}.
+              </Text>
+            )}
+
+            <TextInput
+              placeholder="Payment Note (e.g. UPI Ref #, Cash)"
+              placeholderTextColor={theme.colors.textMuted}
+              value={settlementNote}
+              onChangeText={setSettlementNote}
+              style={[
+                styles.noteInput,
+                { borderColor: theme.colors.borderSubtle, color: theme.colors.textPrimary },
+              ]}
+            />
+
+            {recordError && (
+              <Text variant="caption" color={theme.colors.negative} style={{ marginTop: 8 }}>
+                {recordError}
+              </Text>
+            )}
+
+            <View style={styles.modalButtons}>
+              <Button
+                title="Cancel"
+                variant="subtle"
+                size="medium"
+                onPress={() => {
+                  setRecordModalVisible(false);
+                  setRecordError(null);
+                }}
+                disabled={recording}
+              />
+              <Button
+                title={recording ? 'Recording...' : 'Confirm Settle'}
+                variant="primary"
+                size="medium"
+                onPress={handleRecordSettlement}
+                loading={recording}
+              />
+            </View>
+          </View>
+        </View>
+      </Modal>
     </View>
   );
 }
@@ -258,17 +352,10 @@ const styles = StyleSheet.create({
     gap: 2,
     marginVertical: 4,
   },
-  strikethroughText: {
-    textDecorationLine: 'line-through',
-    fontSize: 20,
-  },
   paymentsCountText: {
     fontSize: 48,
     fontWeight: '800',
     lineHeight: 54,
-  },
-  neutralObligationsRow: {
-    gap: 2,
   },
   divider: {
     height: 1,
@@ -282,16 +369,36 @@ const styles = StyleSheet.create({
   pathCardStack: {
     gap: 12,
   },
-  viewMoreBtn: {
-    paddingVertical: 14,
-    alignItems: 'center',
-    justifyContent: 'center',
-    borderRadius: 12,
-    borderWidth: 1,
-    borderColor: '#E2E8F0',
-    marginTop: 4,
+  modalOverlay: {
+    flex: 1,
+    justifyContent: 'flex-end',
   },
-  viewMoreText: {
-    letterSpacing: 0.5,
+  modalContent: {
+    borderTopLeftRadius: 20,
+    borderTopRightRadius: 20,
+    padding: 24,
+    gap: 12,
+    maxWidth: 440,
+    width: '100%',
+    alignSelf: 'center',
+  },
+  modalTitle: {
+    marginBottom: 4,
+  },
+  noteInput: {
+    borderWidth: 1,
+    borderRadius: 10,
+    padding: 12,
+    fontSize: 14,
+  },
+  modalButtons: {
+    flexDirection: 'row',
+    justifyContent: 'flex-end',
+    gap: 12,
+    marginTop: 12,
+  },
+  errorBox: {
+    padding: 24,
+    marginTop: 40,
   },
 });

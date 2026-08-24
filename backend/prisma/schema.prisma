@@ -1,0 +1,288 @@
+datasource db {
+  provider  = "postgresql"
+  url       = env("DATABASE_URL")
+  directUrl = env("DIRECT_URL")
+}
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+enum GroupRole {
+  OWNER
+  MEMBER
+}
+
+enum GroupType {
+  TRIP
+  APARTMENT
+  HOME
+  COUPLE
+  FRIENDS
+  OTHER
+}
+
+enum SplitMethod {
+  EQUAL
+  EXACT
+  PERCENTAGE
+  SHARES
+}
+
+model User {
+  id              String    @id @default(uuid()) @db.Uuid
+  name            String    @db.VarChar(255)
+  email           String    @unique @db.VarChar(255)
+  emailNormalized String    @unique @map("email_normalized") @db.VarChar(255)
+  passwordHash    String?   @map("password_hash") @db.VarChar(255)
+  avatarUrl       String?   @map("avatar_url") @db.Text
+  emailVerifiedAt DateTime? @map("email_verified_at") @db.Timestamptz(6)
+  isActive        Boolean   @default(true) @map("is_active")
+  createdAt       DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt       DateTime  @updatedAt @map("updated_at") @db.Timestamptz(6)
+  lastLoginAt     DateTime? @map("last_login_at") @db.Timestamptz(6)
+
+  // Relationships
+  refreshTokens           RefreshToken[]
+  accounts                Account[]
+  emailVerificationTokens EmailVerificationToken[]
+  passwordResetTokens     PasswordResetToken[]
+  groupsCreated           Group[]                  @relation("GroupCreator")
+  groupMemberships        GroupMember[]
+  invitationsCreated      GroupInvitation[]        @relation("InvitationCreator")
+  expensesPaid            Expense[]                @relation("ExpensePayer")
+  expenseSplits           ExpenseSplit[]
+  settlementsSent         Settlement[]             @relation("SettlementSender")
+  settlementsReceived     Settlement[]             @relation("SettlementReceiver")
+  auditEventsTriggered    AuditEvent[]             @relation("UserAuditEvents")
+
+  @@index([emailNormalized])
+  @@index([isActive])
+  @@index([createdAt])
+  @@map("users")
+}
+
+model Account {
+  id                String   @id @default(uuid()) @db.Uuid
+  userId            String   @map("user_id") @db.Uuid
+  provider          String   @db.VarChar(50)
+  providerAccountId String   @map("provider_account_id") @db.VarChar(255)
+  providerEmail     String?  @map("provider_email") @db.VarChar(255)
+  createdAt         DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt         DateTime @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  // Relationships
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([provider, providerAccountId])
+  @@index([userId])
+  @@map("accounts")
+}
+
+model RefreshToken {
+  id                String    @id @default(uuid()) @db.Uuid
+  userId            String    @map("user_id") @db.Uuid
+  tokenHash         String    @unique @map("token_hash") @db.VarChar(255)
+  familyId          String?   @map("family_id") @db.Uuid
+  expiresAt         DateTime  @map("expires_at") @db.Timestamptz(6)
+  createdAt         DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
+  revokedAt         DateTime? @map("revoked_at") @db.Timestamptz(6)
+  replacedByTokenId String?   @map("replaced_by_token_id") @db.Uuid
+  deviceId          String?   @map("device_id") @db.VarChar(255)
+  userAgent         String?   @map("user_agent") @db.Text
+  ipAddress         String?   @map("ip_address") @db.VarChar(45)
+  lastUsedAt        DateTime? @map("last_used_at") @db.Timestamptz(6)
+
+  // Relationships
+  user            User           @relation(fields: [userId], references: [id], onDelete: Cascade)
+  replacedByToken RefreshToken?  @relation("TokenRotation", fields: [replacedByTokenId], references: [id], onDelete: SetNull)
+  replacesTokens  RefreshToken[] @relation("TokenRotation")
+
+  @@index([userId])
+  @@index([familyId])
+  @@index([expiresAt])
+  @@index([userId, revokedAt])
+  @@map("refresh_tokens")
+}
+
+model EmailVerificationToken {
+  id         String    @id @default(uuid()) @db.Uuid
+  userId     String    @map("user_id") @db.Uuid
+  tokenHash  String    @unique @map("token_hash") @db.VarChar(255)
+  expiresAt  DateTime  @map("expires_at") @db.Timestamptz(6)
+  consumedAt DateTime? @map("consumed_at") @db.Timestamptz(6)
+  createdAt  DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  // Relationships
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@index([tokenHash])
+  @@index([expiresAt])
+  @@map("email_verification_tokens")
+}
+
+model PasswordResetToken {
+  id         String    @id @default(uuid()) @db.Uuid
+  userId     String    @map("user_id") @db.Uuid
+  tokenHash  String    @unique @map("token_hash") @db.VarChar(255)
+  expiresAt  DateTime  @map("expires_at") @db.Timestamptz(6)
+  consumedAt DateTime? @map("consumed_at") @db.Timestamptz(6)
+  createdAt  DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  // Relationships
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@index([tokenHash])
+  @@index([expiresAt])
+  @@map("password_reset_tokens")
+}
+
+model Group {
+  id         String     @id @default(uuid()) @db.Uuid
+  name       String     @db.VarChar(255)
+  groupType  GroupType  @default(OTHER) @map("group_type")
+  currency   String     @default("INR") @db.VarChar(3)
+  createdBy  String     @map("created_by") @db.Uuid
+  createdAt  DateTime   @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt  DateTime   @updatedAt @map("updated_at") @db.Timestamptz(6)
+  isArchived Boolean    @default(false) @map("is_archived")
+
+  // Relationships
+  creator     User              @relation("GroupCreator", fields: [createdBy], references: [id], onDelete: Restrict)
+  members     GroupMember[]
+  invitations GroupInvitation[]
+  expenses    Expense[]
+  settlements Settlement[]
+
+  @@index([createdBy])
+  @@index([createdAt])
+  @@index([isArchived])
+  @@index([createdBy, isArchived])
+  @@map("groups")
+}
+
+model GroupInvitation {
+  id              String    @id @default(uuid()) @db.Uuid
+  groupId         String    @map("group_id") @db.Uuid
+  inviteCode      String    @unique @map("invite_code") @db.VarChar(16)
+  tokenHash       String    @unique @map("token_hash") @db.VarChar(255)
+  createdByUserId String    @map("created_by_user_id") @db.Uuid
+  expiresAt       DateTime? @map("expires_at") @db.Timestamptz(6)
+  acceptedAt      DateTime? @map("accepted_at") @db.Timestamptz(6)
+  revokedAt       DateTime? @map("revoked_at") @db.Timestamptz(6)
+  createdAt       DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  // Relationships
+  group     Group @relation(fields: [groupId], references: [id], onDelete: Cascade)
+  createdBy User  @relation("InvitationCreator", fields: [createdByUserId], references: [id], onDelete: Restrict)
+
+  @@index([groupId])
+  @@index([inviteCode])
+  @@index([tokenHash])
+  @@map("group_invitations")
+}
+
+model GroupMember {
+  id       String    @id @default(uuid()) @db.Uuid
+  groupId  String    @map("group_id") @db.Uuid
+  userId   String    @map("user_id") @db.Uuid
+  role     GroupRole @default(MEMBER)
+  joinedAt DateTime  @default(now()) @map("joined_at") @db.Timestamptz(6)
+  leftAt   DateTime? @map("left_at") @db.Timestamptz(6)
+
+  // Relationships
+  group Group @relation(fields: [groupId], references: [id], onDelete: Cascade)
+  user  User  @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([groupId, userId])
+  @@index([groupId])
+  @@index([userId])
+  @@map("group_members")
+}
+
+model Expense {
+  id             String      @id @default(uuid()) @db.Uuid
+  groupId        String      @map("group_id") @db.Uuid
+  description    String      @db.VarChar(255)
+  amountMinor    BigInt      @map("amount_minor")
+  currency       String      @default("INR") @db.VarChar(3)
+  paidByUserId   String      @map("paid_by_user_id") @db.Uuid
+  splitMethod    SplitMethod @default(EQUAL) @map("split_method")
+  category       String?     @db.VarChar(100)
+  notes          String?     @db.Text
+  createdAt      DateTime    @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt      DateTime    @updatedAt @map("updated_at") @db.Timestamptz(6)
+  deletedAt      DateTime?   @map("deleted_at") @db.Timestamptz(6)
+
+  // Relationships
+  group   Group          @relation(fields: [groupId], references: [id], onDelete: Cascade)
+  payer   User           @relation("ExpensePayer", fields: [paidByUserId], references: [id], onDelete: Restrict)
+  splits  ExpenseSplit[]
+
+  @@index([groupId, createdAt(sort: Desc)])
+  @@index([groupId, deletedAt])
+  @@index([paidByUserId])
+  @@index([createdAt(sort: Desc)])
+  @@map("expenses")
+}
+
+model ExpenseSplit {
+  id          String   @id @default(uuid()) @db.Uuid
+  expenseId   String   @map("expense_id") @db.Uuid
+  userId      String   @map("user_id") @db.Uuid
+  amountMinor BigInt   @map("amount_minor")
+  createdAt   DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  // Relationships
+  expense Expense @relation(fields: [expenseId], references: [id], onDelete: Cascade)
+  user    User    @relation(fields: [userId], references: [id], onDelete: Restrict)
+
+  @@unique([expenseId, userId])
+  @@index([expenseId])
+  @@index([userId])
+  @@map("expense_splits")
+}
+
+model Settlement {
+  id          String    @id @default(uuid()) @db.Uuid
+  groupId     String    @map("group_id") @db.Uuid
+  fromUserId  String    @map("from_user_id") @db.Uuid
+  toUserId    String    @map("to_user_id") @db.Uuid
+  amountMinor BigInt    @map("amount_minor")
+  currency    String    @default("INR") @db.VarChar(3)
+  note        String?   @db.Text
+  createdAt   DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
+  deletedAt   DateTime? @map("deleted_at") @db.Timestamptz(6)
+
+  // Relationships
+  group    Group @relation(fields: [groupId], references: [id], onDelete: Cascade)
+  fromUser User  @relation("SettlementSender", fields: [fromUserId], references: [id], onDelete: Restrict)
+  toUser   User  @relation("SettlementReceiver", fields: [toUserId], references: [id], onDelete: Restrict)
+
+  @@index([groupId, createdAt(sort: Desc)])
+  @@index([fromUserId])
+  @@index([toUserId])
+  @@index([groupId, fromUserId])
+  @@index([groupId, toUserId])
+  @@map("settlements")
+}
+
+model AuditEvent {
+  id          String   @id @default(uuid()) @db.Uuid
+  actorUserId String?  @map("actor_user_id") @db.Uuid
+  eventType   String   @map("event_type") @db.VarChar(100)
+  entityType  String   @map("entity_type") @db.VarChar(100)
+  entityId    String   @map("entity_id") @db.VarChar(255)
+  metadata    Json?    @db.JsonB
+  createdAt   DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  // Relationships
+  actor User? @relation("UserAuditEvents", fields: [actorUserId], references: [id], onDelete: SetNull)
+
+  @@index([actorUserId, createdAt(sort: Desc)])
+  @@index([entityType, entityId])
+  @@index([eventType, createdAt(sort: Desc)])
+  @@map("audit_events")
+}

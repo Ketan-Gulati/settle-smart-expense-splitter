@@ -3,19 +3,18 @@ import { View, ScrollView, StyleSheet, ActivityIndicator, Pressable, Alert } fro
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import { Text, DetailHeader, Avatar, MoneyDisplay, Surface, Button } from '@/components';
 import { useAppTheme } from '@/hooks/useAppTheme';
-import { expenseRepository } from '@/repositories/expenseRepository';
-import { groupRepository, GroupEntity } from '@/repositories/groupRepository';
-import { userRepository, UserEntity } from '@/repositories/userRepository';
-import { ExpenseEntity } from '@/domain/expense/expense';
+import { SettleApiService } from '@/services/api/settleApi';
+import { ExpenseDTO, UserDTO } from '@/services/api/types';
+import { useAppStore } from '@/store/appStore';
 
 export default function ExpenseDetailScreen() {
   const { id } = useLocalSearchParams<{ id: string }>();
   const theme = useAppTheme();
   const router = useRouter();
+  const notifyDataChanged = useAppStore((s) => s.notifyDataChanged);
 
-  const [expense, setExpense] = useState<ExpenseEntity | null>(null);
-  const [group, setGroup] = useState<GroupEntity | null>(null);
-  const [currentUser, setCurrentUser] = useState<UserEntity | null>(null);
+  const [expense, setExpense] = useState<ExpenseDTO | null>(null);
+  const [currentUser, setCurrentUser] = useState<UserDTO | null>(null);
   const [loading, setLoading] = useState(true);
   const [deleting, setDeleting] = useState(false);
 
@@ -23,18 +22,14 @@ export default function ExpenseDetailScreen() {
     if (!id) return;
     try {
       setLoading(true);
-      const user = await userRepository.getOrCreateDefaultUser();
+      const [user, exp] = await Promise.all([
+        SettleApiService.getMe(),
+        SettleApiService.getExpenseDetails(id),
+      ]);
       setCurrentUser(user);
-
-      const exp = await expenseRepository.findById(id);
       setExpense(exp);
-
-      if (exp) {
-        const groupData = await groupRepository.findById(exp.groupId);
-        setGroup(groupData);
-      }
     } catch (err) {
-      console.error('Failed to load expense details:', err);
+      console.error('Failed to load expense details from backend:', err);
     } finally {
       setLoading(false);
     }
@@ -44,7 +39,7 @@ export default function ExpenseDetailScreen() {
     loadData();
   }, [loadData]);
 
-  if (loading || !expense || !group) {
+  if (loading || !expense) {
     return (
       <View style={[styles.center, { backgroundColor: theme.colors.background }]}>
         <ActivityIndicator size="large" color={theme.colors.primary} />
@@ -52,8 +47,7 @@ export default function ExpenseDetailScreen() {
     );
   }
 
-  const payer = group.members?.find((m) => m.id === expense.payerId);
-  const payerName = payer ? (payer.id === currentUser?.id ? 'You' : payer.name) : 'Someone';
+  const payerName = expense.paidByUserId === currentUser?.id ? 'You' : expense.paidByUserName;
 
   const handleDelete = async () => {
     Alert.alert('Delete Expense', 'Are you sure you want to delete this expense?', [
@@ -64,11 +58,12 @@ export default function ExpenseDetailScreen() {
         onPress: async () => {
           try {
             setDeleting(true);
-            await expenseRepository.delete(expense.id);
+            await SettleApiService.deleteExpense(expense.id);
+            notifyDataChanged();
             router.back();
-          } catch (err) {
+          } catch (err: any) {
             console.error('Failed to delete expense:', err);
-            Alert.alert('Error', 'Failed to delete expense');
+            Alert.alert('Error', err.message || 'Failed to delete expense');
           } finally {
             setDeleting(false);
           }
@@ -85,11 +80,11 @@ export default function ExpenseDetailScreen() {
         {/* 1. Category / Group context badge */}
         <View style={styles.groupBadgeContainer}>
           <Pressable
-            onPress={() => router.push(`/groups/${group.id}` as any)}
+            onPress={() => router.push(`/groups/${expense.groupId}` as any)}
             style={[styles.groupBadge, { borderColor: theme.colors.borderSubtle }]}
           >
             <Text variant="caption" weight="bold" color={theme.colors.textPrimary}>
-              👥 {group.name}
+              👥 {expense.groupName}
             </Text>
           </Pressable>
         </View>
@@ -103,14 +98,14 @@ export default function ExpenseDetailScreen() {
             {expense.description}
           </Text>
           <Text variant="caption" color={theme.colors.textMuted}>
-            Added on {new Date(expense.date).toLocaleDateString('en-US', { dateStyle: 'medium' })}
+            Added on {new Date(expense.createdAt).toLocaleDateString('en-US', { dateStyle: 'medium' })}
           </Text>
         </View>
 
         {/* 3. Paid by Card */}
         <Surface variant="card" style={styles.infoCard}>
           <View style={styles.row}>
-            <Avatar name={payer?.name || 'P'} size="medium" />
+            <Avatar name={payerName} size="medium" />
             <View style={styles.rowText}>
               <Text variant="caption" color={theme.colors.textMuted}>
                 PAID BY
@@ -138,12 +133,7 @@ export default function ExpenseDetailScreen() {
 
           <View style={styles.splitsList}>
             {expense.splits.map((split, idx) => {
-              const member = group.members?.find((m) => m.id === split.userId);
-              const mName = member
-                ? member.id === currentUser?.id
-                  ? 'You'
-                  : member.name
-                : 'Member';
+              const mName = split.userId === currentUser?.id ? 'You' : split.userName;
 
               return (
                 <View
@@ -157,7 +147,7 @@ export default function ExpenseDetailScreen() {
                   ]}
                 >
                   <View style={styles.memberAvatarRow}>
-                    <Avatar name={member?.name || 'M'} size="small" />
+                    <Avatar name={mName} size="small" />
                     <Text variant="body" weight="medium">
                       {mName}
                     </Text>
@@ -191,7 +181,7 @@ export default function ExpenseDetailScreen() {
             variant="secondary"
             size="large"
             onPress={() =>
-              router.push(`/expenses/new?expenseId=${expense.id}&groupId=${group.id}` as any)
+              router.push(`/expenses/new?expenseId=${expense.id}&groupId=${expense.groupId}` as any)
             }
           />
           <Button

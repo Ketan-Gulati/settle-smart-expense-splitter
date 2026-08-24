@@ -13,13 +13,14 @@ export default function TabLayout() {
         tabBarStyle: {
           backgroundColor: theme.colors.surface,
           borderTopColor: theme.colors.borderSubtle,
-          height: 60,
-          paddingBottom: 8,
-          paddingTop: 8,
+          height: 68,
+          paddingBottom: 10,
+          paddingTop: 6,
         },
         tabBarLabelStyle: {
           fontSize: 11,
           fontWeight: theme.typography.fontWeights.medium,
+          marginTop: 2,
         },
         headerStyle: {
           backgroundColor: theme.colors.surface,
@@ -57,8 +58,8 @@ export default function TabLayout() {
           headerShown: false,
           tabBarIcon: ({ color, focused }) => (
             <Icon
-              name={focused ? 'notifications' : 'notifications-outline'}
-              size={20}
+              name={focused ? 'receipt-outline' : 'receipt-outline'}
+              size={22}
               color={color}
             />
           ),
@@ -70,7 +71,7 @@ export default function TabLayout() {
           title: 'Settle',
           headerShown: false,
           tabBarIcon: ({ color, focused }) => (
-            <Icon name={focused ? 'card' : 'card-outline'} size={20} color={color} />
+            <Icon name={focused ? 'wallet-outline' : 'wallet-outline'} size={22} color={color} />
           ),
         }}
       />

@@ -5,19 +5,19 @@ import { useAppStore } from '../store/appStore';
 export function useDatabaseInit(): { isReady: boolean; error: Error | null } {
   const [isReady, setIsReady] = useState(false);
   const [error, setError] = useState<Error | null>(null);
-  const setInitialized = useAppStore((state) => state.setInitialized);
+  const initSession = useAppStore((state) => state.initSession);
 
   useEffect(() => {
     let isMounted = true;
 
     async function init(): Promise<void> {
       try {
+        await initSession();
         await databaseService.initialize();
         const { SeedDataService } = await import('../repositories/seedDataService');
         await SeedDataService.seedDevelopmentData();
         if (isMounted) {
           setIsReady(true);
-          setInitialized(true);
         }
       } catch (err) {
         if (isMounted) {
@@ -31,7 +31,7 @@ export function useDatabaseInit(): { isReady: boolean; error: Error | null } {
     return () => {
       isMounted = false;
     };
-  }, [setInitialized]);
+  }, [initSession]);
 
   return { isReady, error };
 }

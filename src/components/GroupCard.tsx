@@ -2,7 +2,6 @@ import React from 'react';
 import { View, StyleSheet, Pressable, ViewStyle } from 'react-native';
 import { Text } from './Text';
 import { MoneyDisplay } from './MoneyDisplay';
-import { StatusBadge } from './StatusBadge';
 import { useAppTheme } from '@/hooks/useAppTheme';
 
 export interface GroupCardProps {
@@ -22,7 +21,7 @@ export const GroupCard: React.FC<GroupCardProps> = ({
   currency = 'INR',
   netBalanceMinor,
   unsettledExpensesCount = 0,
-  thumbnailEmoji = '🏖️',
+  memberCount,
   onPress,
   style,
 }) => {
@@ -39,44 +38,44 @@ export const GroupCard: React.FC<GroupCardProps> = ({
         {
           backgroundColor: theme.colors.surface,
           borderColor: theme.colors.border,
-          opacity: pressed ? 0.9 : 1,
+          opacity: pressed ? 0.85 : 1,
         },
         style,
       ]}
     >
       <View style={styles.topRow}>
-        <View style={[styles.thumbnail, { backgroundColor: theme.colors.surfaceSubtle }]}>
-          <Text style={styles.emoji}>{thumbnailEmoji}</Text>
+        <View style={styles.titleInfo}>
+          <Text variant="body" weight="bold" color={theme.colors.textPrimary}>
+            {name}
+          </Text>
+          <Text variant="caption" color={theme.colors.textSecondary}>
+            {memberCount ? `${memberCount} members · ` : ''}
+            {unsettledExpensesCount} unsettled expense{unsettledExpensesCount === 1 ? '' : 's'}
+          </Text>
         </View>
 
-        {isSettled ? (
-          <StatusBadge label="Settled up" variant="neutral" size="small" />
-        ) : isPositive ? (
-          <StatusBadge label="You are owed" variant="positive" size="small" />
-        ) : (
-          <StatusBadge label="You owe" variant="negative" size="small" />
-        )}
-      </View>
-
-      <View style={styles.bottomSection}>
-        <Text variant="headline" weight="bold" numberOfLines={1}>
-          {name}
-        </Text>
-
-        <MoneyDisplay
-          amountMinor={netBalanceMinor}
-          currency={currency}
-          variant="large"
-          sentiment="auto"
-          showSign
-          style={styles.amount}
-        />
-
-        <Text variant="caption" color={theme.colors.textMuted}>
-          {unsettledExpensesCount > 0
-            ? `${unsettledExpensesCount} unsettled expense${unsettledExpensesCount > 1 ? 's' : ''}`
-            : 'All expenses settled'}
-        </Text>
+        <View style={styles.balanceInfo}>
+          <MoneyDisplay
+            amountMinor={netBalanceMinor}
+            currency={currency}
+            variant="medium"
+            sentiment={isPositive ? 'positive' : isSettled ? 'neutral' : 'negative'}
+            showSign
+          />
+          <Text
+            variant="caption"
+            weight="medium"
+            color={
+              isSettled
+                ? theme.colors.textMuted
+                : isPositive
+                ? theme.colors.positive
+                : theme.colors.negative
+            }
+          >
+            {isSettled ? 'Settled up' : isPositive ? 'You are owed' : 'You owe'}
+          </Text>
+        </View>
       </View>
     </Pressable>
   );
@@ -85,31 +84,23 @@ export const GroupCard: React.FC<GroupCardProps> = ({
 const styles = StyleSheet.create({
   card: {
     borderRadius: 16,
+    paddingHorizontal: 16,
+    paddingVertical: 14,
     borderWidth: 1,
-    padding: 16,
     gap: 12,
-    minHeight: 140,
-    justifyContent: 'space-between',
   },
   topRow: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
   },
-  thumbnail: {
-    width: 40,
-    height: 40,
-    borderRadius: 8,
-    alignItems: 'center',
-    justifyContent: 'center',
+  titleInfo: {
+    flex: 1,
+    gap: 2,
+    paddingRight: 12,
   },
-  emoji: {
-    fontSize: 20,
-  },
-  bottomSection: {
-    gap: 4,
-  },
-  amount: {
-    fontWeight: '700',
+  balanceInfo: {
+    alignItems: 'flex-end',
+    gap: 2,
   },
 });

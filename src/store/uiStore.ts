@@ -9,7 +9,7 @@ interface UIState {
 }
 
 export const useUIStore = create<UIState>((set) => ({
-  themeMode: 'system',
+  themeMode: 'dark',
   setThemeMode: (themeMode) => set({ themeMode }),
   isGlobalLoading: false,
   setGlobalLoading: (isGlobalLoading) => set({ isGlobalLoading }),

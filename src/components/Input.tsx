@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { View, TextInput, TextInputProps, StyleSheet, ViewStyle, TextStyle } from 'react-native';
+import { View, TextInput, TextInputProps, StyleSheet, ViewStyle, TextStyle, Platform } from 'react-native';
 import { Text } from './Text';
 import { useAppTheme } from '@/hooks/useAppTheme';
 
@@ -66,6 +66,7 @@ export const Input: React.FC<InputProps> = ({
           placeholderTextColor={theme.colors.textMuted}
           onFocus={handleFocus}
           onBlur={handleBlur}
+          selectionColor={theme.colors.primary}
           style={[
             styles.input,
             {
@@ -73,6 +74,20 @@ export const Input: React.FC<InputProps> = ({
               fontSize: theme.typography.fontSizes.md,
             },
             inputStyle,
+            Platform.OS === 'web'
+              ? ({
+                  outline: 'none',
+                  outlineWidth: 0,
+                  outlineColor: 'transparent',
+                  outlineStyle: 'none',
+                  boxShadow: 'none',
+                  borderWidth: 0,
+                  color: theme.colors.textPrimary,
+                  WebkitTextFillColor: theme.colors.textPrimary,
+                  caretColor: theme.colors.primary,
+                  backgroundColor: 'transparent',
+                } as any)
+              : undefined,
           ]}
           {...rest}
         />

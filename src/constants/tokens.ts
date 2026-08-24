@@ -111,24 +111,24 @@ export interface ColorScheme {
 }
 
 export const lightColors: ColorScheme = {
-  background: '#FFFFFF',
+  background: '#F8FAFC',
   surface: '#FFFFFF',
-  surfaceSubtle: '#F8FAFC',
-  surfaceElevated: '#F1F5F9',
-  surfaceMuted: '#F1F5F9',
+  surfaceSubtle: '#F1F5F9',
+  surfaceElevated: '#FFFFFF',
+  surfaceMuted: '#E2E8F0',
 
-  textPrimary: '#0F172A',
+  textPrimary: '#0A0F1D',
   textSecondary: '#475569',
   textMuted: '#94A3B8',
   textInverse: '#FFFFFF',
 
   border: '#E2E8F0',
   borderSubtle: '#F1F5F9',
-  borderFocus: '#0F172A',
+  borderFocus: '#0284C7',
 
-  primary: '#0F172A',
+  primary: '#0284C7',
   primaryForeground: '#FFFFFF',
-  primarySubtle: '#F1F5F9',
+  primarySubtle: '#E0F2FE',
 
   positive: '#10B981',
   positiveSubtle: '#ECFDF5',
@@ -151,41 +151,41 @@ export const lightColors: ColorScheme = {
 };
 
 export const darkColors: ColorScheme = {
-  background: '#0B0F17',
-  surface: '#131B2A',
-  surfaceSubtle: '#162032',
-  surfaceElevated: '#1E293B',
-  surfaceMuted: '#1E293B',
+  background: '#0B0B0D',
+  surface: '#111113',
+  surfaceSubtle: '#141417',
+  surfaceElevated: '#17171A',
+  surfaceMuted: '#1E1E22',
 
-  textPrimary: '#F8FAFC',
-  textSecondary: '#94A3B8',
-  textMuted: '#64748B',
-  textInverse: '#0F172A',
+  textPrimary: '#F5F5F7',
+  textSecondary: '#A1A1AA',
+  textMuted: '#71717A',
+  textInverse: '#0B0B0D',
 
-  border: '#1E293B',
-  borderSubtle: '#162032',
-  borderFocus: '#38BDF8',
+  border: 'rgba(255, 255, 255, 0.08)',
+  borderSubtle: 'rgba(255, 255, 255, 0.04)',
+  borderFocus: '#0A84FF',
 
-  primary: '#38BDF8',
-  primaryForeground: '#0B0F17',
-  primarySubtle: '#13283E',
+  primary: '#0A84FF',
+  primaryForeground: '#FFFFFF',
+  primarySubtle: 'rgba(10, 132, 255, 0.12)',
 
-  positive: '#10B981',
-  positiveSubtle: '#064E3B',
-  positiveForeground: '#A7F3D0',
+  positive: '#30D158',
+  positiveSubtle: 'rgba(48, 209, 88, 0.12)',
+  positiveForeground: '#30D158',
 
-  negative: '#F87171',
-  negativeSubtle: '#450A0A',
-  negativeForeground: '#FECACA',
+  negative: '#FF453A',
+  negativeSubtle: 'rgba(255, 69, 58, 0.12)',
+  negativeForeground: '#FF453A',
 
-  warning: '#FBBF24',
-  warningSubtle: '#451A03',
-  warningForeground: '#FDE68A',
+  warning: '#FFD60A',
+  warningSubtle: 'rgba(255, 214, 10, 0.12)',
+  warningForeground: '#FFD60A',
 
-  destructive: '#F87171',
-  destructiveForeground: '#0B0F17',
+  destructive: '#FF453A',
+  destructiveForeground: '#FFFFFF',
 
-  tint: '#38BDF8',
-  card: '#131B2A',
-  overlay: 'rgba(0, 0, 0, 0.65)',
+  tint: '#0A84FF',
+  card: '#111113',
+  overlay: 'rgba(0, 0, 0, 0.72)',
 };

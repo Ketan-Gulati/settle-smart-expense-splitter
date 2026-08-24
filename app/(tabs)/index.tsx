@@ -136,7 +136,13 @@ export default function HomeScreen() {
           {topGroups.length > 0 && (
             <Pressable
               onPress={() => router.push('/expenses/new' as any)}
-              style={[styles.addExpenseHomeBtn, { borderColor: theme.colors.borderSubtle }]}
+              style={[
+                styles.addExpenseHomeBtn,
+                {
+                  borderColor: theme.colors.border,
+                  backgroundColor: theme.colors.surfaceSubtle,
+                },
+              ]}
             >
               <Text variant="body" weight="bold" color={theme.colors.textPrimary}>
                 + Add Expense
@@ -267,7 +273,6 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
     borderWidth: 1,
-    backgroundColor: '#F8FAFC',
   },
   settledBanner: {
     borderRadius: 14,

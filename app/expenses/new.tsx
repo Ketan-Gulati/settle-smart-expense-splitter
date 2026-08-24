@@ -11,10 +11,9 @@ import {
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import { Text, Avatar, NumericKeypad } from '@/components';
 import { useAppTheme } from '@/hooks/useAppTheme';
-import { groupRepository, GroupEntity } from '@/repositories/groupRepository';
-import { userRepository, UserEntity } from '@/repositories/userRepository';
-import { expenseRepository } from '@/repositories/expenseRepository';
-import { SplitMethod } from '@/domain/split/splitEngine';
+import { SettleApiService } from '@/services/api/settleApi';
+import { GroupDTO, UserDTO } from '@/services/api/types';
+import { useAppStore } from '@/store/appStore';
 
 export default function NewOrEditExpenseScreen() {
   const { groupId: initialGroupId, expenseId } = useLocalSearchParams<{
@@ -23,11 +22,12 @@ export default function NewOrEditExpenseScreen() {
   }>();
   const theme = useAppTheme();
   const router = useRouter();
+  const notifyDataChanged = useAppStore((s) => s.notifyDataChanged);
 
-  const [groups, setGroups] = useState<GroupEntity[]>([]);
+  const [groups, setGroups] = useState<GroupDTO[]>([]);
   const [selectedGroupId, setSelectedGroupId] = useState<string>(initialGroupId || '');
-  const [currentGroup, setCurrentGroup] = useState<GroupEntity | null>(null);
-  const [currentUser, setCurrentUser] = useState<UserEntity | null>(null);
+  const [currentGroup, setCurrentGroup] = useState<GroupDTO | null>(null);
+  const [currentUser, setCurrentUser] = useState<UserDTO | null>(null);
   const [loading, setLoading] = useState(true);
 
   // Form State
@@ -35,9 +35,9 @@ export default function NewOrEditExpenseScreen() {
   const [description, setDescription] = useState('');
   const [payerId, setPayerId] = useState<string>('');
   const [selectedParticipantIds, setSelectedParticipantIds] = useState<string[]>([]);
-  const [splitMethod, setSplitMethod] = useState<SplitMethod>('equal');
+  const [splitMethod, setSplitMethod] = useState<'EQUAL' | 'EXACT' | 'PERCENTAGE' | 'SHARES'>('EQUAL');
 
-  // Custom split values: mapped by userId (amounts in minor units or percent/share numbers)
+  // Custom split values
   const [exactAmounts, setExactAmounts] = useState<Record<string, string>>({});
   const [percentages, setPercentages] = useState<Record<string, string>>({});
   const [shares, setShares] = useState<Record<string, string>>({});
@@ -53,27 +53,27 @@ export default function NewOrEditExpenseScreen() {
   const loadData = useCallback(async () => {
     try {
       setLoading(true);
-      const user = await userRepository.getOrCreateDefaultUser();
+      const [user, allGroups] = await Promise.all([
+        SettleApiService.getMe(),
+        SettleApiService.getGroups(),
+      ]);
       setCurrentUser(user);
-
-      const allGroups = await groupRepository.findAll();
       setGroups(allGroups);
 
       if (expenseId) {
-        // Edit Mode: load existing expense data
-        const existingExp = await expenseRepository.findById(expenseId);
+        // Edit Mode: load existing expense data from backend
+        const existingExp = await SettleApiService.getExpenseDetails(expenseId);
         if (existingExp) {
           setSelectedGroupId(existingExp.groupId);
-          const groupData = await groupRepository.findById(existingExp.groupId);
+          const groupData = await SettleApiService.getGroupDetails(existingExp.groupId);
           setCurrentGroup(groupData);
           setDescription(existingExp.description);
           setAmountStr((existingExp.amountMinor / 100).toString());
-          setPayerId(existingExp.payerId);
+          setPayerId(existingExp.paidByUserId);
           setSelectedParticipantIds(existingExp.splits.map((s) => s.userId));
           if (existingExp.splitMethod) {
-            setSplitMethod(existingExp.splitMethod);
+            setSplitMethod(existingExp.splitMethod as any);
           }
-          // Restore exact amounts
           const exactMap: Record<string, string> = {};
           for (const s of existingExp.splits) {
             exactMap[s.userId] = (s.amountMinor / 100).toString();
@@ -81,16 +81,14 @@ export default function NewOrEditExpenseScreen() {
           setExactAmounts(exactMap);
         }
       } else if (initialGroupId) {
-        // Preselected group mode
         setSelectedGroupId(initialGroupId);
-        const groupData = await groupRepository.findById(initialGroupId);
+        const groupData = await SettleApiService.getGroupDetails(initialGroupId);
         setCurrentGroup(groupData);
         if (groupData?.members && groupData.members.length > 0) {
           setPayerId(user.id);
-          setSelectedParticipantIds(groupData.members.map((m) => m.id));
+          setSelectedParticipantIds(groupData.members.map((m) => m.userId));
         }
       } else {
-        // Explicit selection from Home
         setSelectedGroupId('');
         setCurrentGroup(null);
         setPayerId(user.id);
@@ -110,11 +108,11 @@ export default function NewOrEditExpenseScreen() {
   const handleSelectGroup = async (gId: string) => {
     setSelectedGroupId(gId);
     setGroupModalVisible(false);
-    const groupData = await groupRepository.findById(gId);
+    const groupData = await SettleApiService.getGroupDetails(gId);
     setCurrentGroup(groupData);
     if (groupData?.members && groupData.members.length > 0) {
       if (currentUser) setPayerId(currentUser.id);
-      setSelectedParticipantIds(groupData.members.map((m) => m.id));
+      setSelectedParticipantIds(groupData.members.map((m) => m.userId));
     }
   };
 
@@ -171,7 +169,7 @@ export default function NewOrEditExpenseScreen() {
 
   const getPayerName = () => {
     if (currentUser && payerId === currentUser.id) return 'You';
-    return currentGroup?.members?.find((m) => m.id === payerId)?.name || 'Someone';
+    return currentGroup?.members?.find((m) => m.userId === payerId)?.name || 'Someone';
   };
 
   const perPersonAmountMinor =
@@ -203,65 +201,41 @@ export default function NewOrEditExpenseScreen() {
       setSaving(true);
       setError(null);
 
-      const commandPayload: any = {
-        groupId: selectedGroupId,
-        description: description.trim(),
-        amountMinor,
-        payerId,
-        participantIds: selectedParticipantIds,
-        splitMethod,
-        createdBy: currentUser!.id,
-      };
+      const participantsPayload = selectedParticipantIds.map((userId) => {
+        const item: { userId: string; amountMinor?: number; percentage?: number; shares?: number } = { userId };
+        if (splitMethod === 'EXACT') {
+          item.amountMinor = Math.round((parseFloat(exactAmounts[userId] || '0') || 0) * 100);
+        } else if (splitMethod === 'PERCENTAGE') {
+          item.percentage = parseFloat(percentages[userId] || '0') || 0;
+        } else if (splitMethod === 'SHARES') {
+          item.shares = Math.max(1, parseInt(shares[userId] || '1', 10));
+        }
+        return item;
+      });
 
-      if (splitMethod === 'exact') {
-        const customSplits = selectedParticipantIds.map((id) => ({
-          userId: id,
-          amountMinor: Math.round((parseFloat(exactAmounts[id] || '0') || 0) * 100),
-        }));
-        const totalCustom = customSplits.reduce((acc, s) => acc + s.amountMinor, 0);
-        if (totalCustom !== amountMinor) {
-          setError(`Exact amounts must sum to ₹${(amountMinor / 100).toLocaleString('en-IN')}`);
-          setSaving(false);
-          return;
-        }
-        commandPayload.customSplits = customSplits;
-      } else if (splitMethod === 'percentage') {
-        const percentagesMap: Record<string, number> = {};
-        let totalPct = 0;
-        for (const id of selectedParticipantIds) {
-          const val = parseFloat(percentages[id] || '0') || 0;
-          percentagesMap[id] = val;
-          totalPct += val;
-        }
-        if (Math.abs(totalPct - 100) > 0.01) {
-          setError('Percentages must sum to 100%');
-          setSaving(false);
-          return;
-        }
-        commandPayload.percentages = percentagesMap;
-      } else if (splitMethod === 'shares') {
-        const sharesMap: Record<string, number> = {};
-        for (const id of selectedParticipantIds) {
-          sharesMap[id] = Math.max(1, parseInt(shares[id] || '1', 10));
-        }
-        commandPayload.shares = sharesMap;
-      }
-
-      let result;
       if (expenseId) {
-        result = await expenseRepository.update(expenseId, commandPayload);
+        await SettleApiService.updateExpense(expenseId, {
+          description: description.trim(),
+          amountMinor,
+          paidByUserId: payerId,
+          splitMethod,
+          participants: participantsPayload,
+        });
       } else {
-        result = await expenseRepository.create(commandPayload);
+        await SettleApiService.createExpense({
+          groupId: selectedGroupId,
+          description: description.trim(),
+          amountMinor,
+          paidByUserId: payerId,
+          splitMethod,
+          participants: participantsPayload,
+        });
       }
 
-      if (!result.success) {
-        setError(result.error.message);
-        return;
-      }
-
+      notifyDataChanged();
       router.back();
-    } catch (err) {
-      setError(err instanceof Error ? err.message : 'Failed to save expense');
+    } catch (err: any) {
+      setError(err.message || 'Failed to save expense');
     } finally {
       setSaving(false);
     }
@@ -285,7 +259,13 @@ export default function NewOrEditExpenseScreen() {
         <View style={styles.contextRow}>
           <Pressable
             onPress={() => setGroupModalVisible(true)}
-            style={[styles.groupSelectorPill, { borderColor: theme.colors.borderSubtle }]}
+            style={[
+              styles.groupSelectorPill,
+              {
+                borderColor: theme.colors.border,
+                backgroundColor: theme.colors.surfaceSubtle,
+              },
+            ]}
           >
             <Text variant="bodySecondary" color={theme.colors.textPrimary} weight="bold">
               👥 {currentGroup?.name || 'Select Group'} ▼
@@ -349,7 +329,7 @@ export default function NewOrEditExpenseScreen() {
         >
           <View style={styles.avatarStackMini}>
             {selectedParticipantIds.slice(0, 3).map((id, idx) => {
-              const m = currentGroup?.members?.find((mem) => mem.id === id);
+              const m = currentGroup?.members?.find((mem) => mem.userId === id);
               return (
                 <View
                   key={id}
@@ -378,7 +358,7 @@ export default function NewOrEditExpenseScreen() {
 
           <View style={styles.actionCardDetails}>
             <Text variant="body" weight="semibold">
-              Split {splitMethod.charAt(0).toUpperCase() + splitMethod.slice(1)}
+              Split {splitMethod.charAt(0).toUpperCase() + splitMethod.slice(1).toLowerCase()}
             </Text>
             <Text variant="caption" color={theme.colors.textMuted}>
               {selectedParticipantIds.length} people · ₹
@@ -420,18 +400,33 @@ export default function NewOrEditExpenseScreen() {
             <Text variant="headline" weight="bold" style={styles.modalTitle}>
               Select Group
             </Text>
-            {groups.map((g) => (
-              <Pressable
-                key={g.id}
-                onPress={() => handleSelectGroup(g.id)}
-                style={styles.modalOptionRow}
-              >
-                <Avatar name={g.name} size="medium" />
-                <Text variant="body" weight={g.id === selectedGroupId ? 'bold' : 'medium'}>
-                  {g.name}
-                </Text>
-              </Pressable>
-            ))}
+            <ScrollView style={{ maxHeight: 300 }}>
+              {groups.map((g) => (
+                <Pressable
+                  key={g.id}
+                  onPress={() => handleSelectGroup(g.id)}
+                  style={[
+                    styles.groupModalItem,
+                    g.id === selectedGroupId && { backgroundColor: theme.colors.surfaceSubtle },
+                  ]}
+                >
+                  <Avatar name={g.name} size="medium" />
+                  <Text
+                    variant="body"
+                    weight={g.id === selectedGroupId ? 'bold' : 'medium'}
+                    color={theme.colors.textPrimary}
+                    style={{ flex: 1 }}
+                  >
+                    {g.name}
+                  </Text>
+                  {g.id === selectedGroupId && (
+                    <Text variant="body" weight="bold" color={theme.colors.primary}>
+                      ✓
+                    </Text>
+                  )}
+                </Pressable>
+              ))}
+            </ScrollView>
           </View>
         </View>
       </Modal>
@@ -445,16 +440,16 @@ export default function NewOrEditExpenseScreen() {
             </Text>
             {currentGroup?.members?.map((m) => (
               <Pressable
-                key={m.id}
+                key={m.userId}
                 onPress={() => {
-                  setPayerId(m.id);
+                  setPayerId(m.userId);
                   setPayerModalVisible(false);
                 }}
                 style={styles.modalOptionRow}
               >
                 <Avatar name={m.name} size="medium" />
                 <Text variant="body" weight="medium">
-                  {m.name} {m.id === currentUser?.id ? '(You)' : ''}
+                  {m.name} {m.userId === currentUser?.id ? '(You)' : ''}
                 </Text>
               </Pressable>
             ))}
@@ -472,7 +467,7 @@ export default function NewOrEditExpenseScreen() {
 
             {/* Split method selector */}
             <View style={styles.splitMethodTabs}>
-              {(['equal', 'exact', 'percentage', 'shares'] as SplitMethod[]).map((m) => (
+              {(['EQUAL', 'EXACT', 'PERCENTAGE', 'SHARES'] as const).map((m) => (
                 <Pressable
                   key={m}
                   onPress={() => setSplitMethod(m)}
@@ -491,7 +486,7 @@ export default function NewOrEditExpenseScreen() {
                     }
                     style={{ textTransform: 'capitalize' }}
                   >
-                    {m}
+                    {m.toLowerCase()}
                   </Text>
                 </Pressable>
               ))}
@@ -499,13 +494,13 @@ export default function NewOrEditExpenseScreen() {
 
             <ScrollView style={{ maxHeight: 220 }}>
               {currentGroup?.members?.map((m) => {
-                const isSelected = selectedParticipantIds.includes(m.id);
+                const isSelected = selectedParticipantIds.includes(m.userId);
                 return (
-                  <View key={m.id} style={styles.modalOptionRow}>
+                  <View key={m.userId} style={styles.modalOptionRow}>
                     <Pressable
                       onPress={() => {
                         setSelectedParticipantIds((prev) =>
-                          prev.includes(m.id) ? prev.filter((id) => id !== m.id) : [...prev, m.id]
+                          prev.includes(m.userId) ? prev.filter((id) => id !== m.userId) : [...prev, m.userId]
                         );
                       }}
                       style={{ flexDirection: 'row', alignItems: 'center', gap: 10, flex: 1 }}
@@ -524,32 +519,32 @@ export default function NewOrEditExpenseScreen() {
                       </Text>
                     </Pressable>
 
-                    {isSelected && splitMethod === 'exact' && (
+                    {isSelected && splitMethod === 'EXACT' && (
                       <TextInput
                         placeholder="₹0"
                         keyboardType="numeric"
-                        value={exactAmounts[m.id] || ''}
-                        onChangeText={(t) => setExactAmounts((p) => ({ ...p, [m.id]: t }))}
+                        value={exactAmounts[m.userId] || ''}
+                        onChangeText={(t) => setExactAmounts((p) => ({ ...p, [m.userId]: t }))}
                         style={styles.customSplitInput}
                       />
                     )}
 
-                    {isSelected && splitMethod === 'percentage' && (
+                    {isSelected && splitMethod === 'PERCENTAGE' && (
                       <TextInput
                         placeholder="%"
                         keyboardType="numeric"
-                        value={percentages[m.id] || ''}
-                        onChangeText={(t) => setPercentages((p) => ({ ...p, [m.id]: t }))}
+                        value={percentages[m.userId] || ''}
+                        onChangeText={(t) => setPercentages((p) => ({ ...p, [m.userId]: t }))}
                         style={styles.customSplitInput}
                       />
                     )}
 
-                    {isSelected && splitMethod === 'shares' && (
+                    {isSelected && splitMethod === 'SHARES' && (
                       <TextInput
                         placeholder="1 share"
                         keyboardType="numeric"
-                        value={shares[m.id] || '1'}
-                        onChangeText={(t) => setShares((p) => ({ ...p, [m.id]: t }))}
+                        value={shares[m.userId] || '1'}
+                        onChangeText={(t) => setShares((p) => ({ ...p, [m.userId]: t }))}
                         style={styles.customSplitInput}
                       />
                     )}
@@ -618,7 +613,6 @@ const styles = StyleSheet.create({
     paddingVertical: 8,
     borderRadius: 20,
     borderWidth: 1,
-    backgroundColor: '#F1F5F9',
   },
   descInputContainer: {
     marginTop: 4,
@@ -724,6 +718,14 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'space-between',
     paddingVertical: 8,
+  },
+  groupModalItem: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingVertical: 12,
+    paddingHorizontal: 12,
+    borderRadius: 12,
+    gap: 14,
   },
   customSplitInput: {
     width: 80,

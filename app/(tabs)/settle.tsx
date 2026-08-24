@@ -3,9 +3,8 @@ import { View, ScrollView, StyleSheet, ActivityIndicator } from 'react-native';
 import { useRouter } from 'expo-router';
 import { useAppTheme } from '@/hooks/useAppTheme';
 import { AppHeader, Text, Surface, EmptyState, Button, StatusBadge } from '@/components';
-import { groupRepository, GroupEntity } from '@/repositories/groupRepository';
-import { settlementService } from '@/services/settlementService';
-import { SettlementPlan } from '@/domain/settlement/settlementOptimizer';
+import { SettleApiService } from '@/services/api/settleApi';
+import { GroupDTO, GroupBalancesDTO, UserDTO } from '@/services/api/types';
 import { useAppStore } from '@/store/appStore';
 
 export default function GlobalSettleScreen() {
@@ -13,24 +12,33 @@ export default function GlobalSettleScreen() {
   const router = useRouter();
   const dataVersion = useAppStore((s) => s.dataVersion);
 
-  const [groups, setGroups] = useState<GroupEntity[]>([]);
-  const [plans, setPlans] = useState<Record<string, SettlementPlan>>({});
+  const [currentUser, setCurrentUser] = useState<UserDTO | null>(null);
+  const [groups, setGroups] = useState<GroupDTO[]>([]);
+  const [groupBalances, setGroupBalances] = useState<Record<string, GroupBalancesDTO>>({});
   const [loading, setLoading] = useState(true);
 
   const loadPlans = useCallback(async () => {
     try {
       setLoading(true);
-      const allGroups = await groupRepository.findAll();
+      const [user, allGroups] = await Promise.all([
+        SettleApiService.getMe().catch(() => null),
+        SettleApiService.getGroups().catch(() => []),
+      ]);
+      setCurrentUser(user);
       setGroups(allGroups);
 
-      const planMap: Record<string, SettlementPlan> = {};
-      for (const g of allGroups) {
-        const planRes = await settlementService.getOptimizedSettlementPlan(g.id);
-        if (planRes.success) {
-          planMap[g.id] = planRes.data;
-        }
-      }
-      setPlans(planMap);
+      const balMap: Record<string, GroupBalancesDTO> = {};
+      await Promise.all(
+        allGroups.map(async (g) => {
+          try {
+            const bals = await SettleApiService.getGroupBalances(g.id);
+            balMap[g.id] = bals;
+          } catch (e) {
+            // Ignore balance errors for empty groups
+          }
+        })
+      );
+      setGroupBalances(balMap);
     } catch (err) {
       console.error('Failed to load global settlements:', err);
     } finally {
@@ -50,11 +58,15 @@ export default function GlobalSettleScreen() {
     );
   }
 
-  const groupsWithTransfers = groups.filter((g) => (plans[g.id]?.totalTransfersCount || 0) > 0);
+  const groupsWithTransfers = groups.filter((g) => {
+    const bals = groupBalances[g.id];
+    if (!bals) return false;
+    return bals.members.some((m) => m.netBalanceMinor !== 0);
+  });
 
   return (
     <View style={[styles.container, { backgroundColor: theme.colors.background }]}>
-      <AppHeader userName="Alex" onSettingsPress={() => router.push('/settings' as any)} />
+      <AppHeader userName={currentUser?.name || 'You'} onSettingsPress={() => router.push('/settings' as any)} />
 
       <ScrollView contentContainerStyle={styles.content}>
         <View style={styles.headerTitleSection}>
@@ -78,24 +90,22 @@ export default function GlobalSettleScreen() {
           </Surface>
         ) : (
           groupsWithTransfers.map((g) => {
-            const plan = plans[g.id];
+            const bals = groupBalances[g.id];
+            const activeDebtors = bals?.members.filter((m) => m.netBalanceMinor < 0).length || 0;
             return (
               <Surface key={g.id} variant="card" style={styles.groupSettleCard}>
                 <View style={styles.groupHeader}>
                   <Text variant="headline" weight="bold">
                     {g.name}
                   </Text>
-                  {plan && plan.transferReductionPercentage > 0 && (
-                    <StatusBadge
-                      label={`${plan.transferReductionPercentage}% fewer`}
-                      variant="positive"
-                    />
-                  )}
+                  <StatusBadge
+                    label="OPTIMIZED"
+                    variant="positive"
+                  />
                 </View>
 
                 <Text variant="caption" color={theme.colors.textMuted}>
-                  {plan?.totalTransfersCount || 0} optimized payment(s) resolving{' '}
-                  {plan?.originalObligationsCount || 0} obligations.
+                  {activeDebtors > 0 ? `${activeDebtors} member(s) have unsettled balances.` : 'Group settlement ready.'}
                 </Text>
 
                 <Button

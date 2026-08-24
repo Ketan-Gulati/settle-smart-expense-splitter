@@ -77,6 +77,25 @@ export default function SettingsScreen() {
           </View>
         </Surface>
 
+        {/* Sign Out Button */}
+        <Surface variant="card" style={styles.sectionCard}>
+          <Pressable
+            onPress={async () => {
+              const { useAppStore } = await import('@/store/appStore');
+              await useAppStore.getState().logout();
+              router.replace('/auth');
+            }}
+            style={({ pressed }) => [
+              styles.logoutBtn,
+              { backgroundColor: theme.colors.negative, opacity: pressed ? 0.8 : 1 },
+            ]}
+          >
+            <Text variant="body" weight="bold" color="#FFFFFF">
+              Sign Out
+            </Text>
+          </Pressable>
+        </Surface>
+
         {/* Application Info */}
         <Surface variant="subtle" style={styles.infoCard}>
           <Text variant="label" color={theme.colors.textMuted}>
@@ -138,6 +157,13 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     alignItems: 'center',
     justifyContent: 'center',
+  },
+  logoutBtn: {
+    paddingVertical: 14,
+    borderRadius: 12,
+    alignItems: 'center',
+    justifyContent: 'center',
+    width: '100%',
   },
   infoCard: {
     padding: 16,

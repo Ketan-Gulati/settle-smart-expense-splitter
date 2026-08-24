@@ -617,6 +617,348 @@ Stage 3 — Groups (Formally complete and verify Stage 3 Group Overview and sub-
 - `ESLint`: 0 errors.
 - Visual inspection on ~390px mobile viewport verified.
 
+## 2026-08-24 — Phase 5 — Production-Grade Backend & Neon Database Foundation
 
+### Status
+Completed
+
+### Objective
+Transition Settle from local SQLite / frontend mock layer into a production-grade modular-monolith backend with Neon PostgreSQL, Prisma ORM, Zod strict configuration validation, BigInt minor-unit money arithmetic, dual-token JWT security foundation, and migration/seed infrastructure without connecting the frontend or creating premature microservices.
+
+### Backend Stack
+- **Runtime:** Node.js
+- **Framework:** Express.js
+- **Language:** TypeScript (`strict: true`, `NodeNext` modules)
+- **Database:** PostgreSQL on Neon (Serverless Postgres with pooled runtime connection + direct migration connection)
+- **ORM:** Prisma v6.19.3
+- **Validation:** Zod
+- **Security & Password Hashing:** bcrypt (12 salt rounds), SHA-256 for refresh token storage, crypto for secure token generation
+- **Logging:** Structured JSON logger with automated redaction of sensitive credentials, secrets, tokens, and hashes
+- **Testing:** Jest + ts-jest
+
+### Database Schema Created (`backend/prisma/schema.prisma`)
+1. **`users`**: UUID PK, name, normalized unique lowercase email, bcrypt `password_hash` (nullable for future social auth), `is_active`, `created_at`, `updated_at`, `last_login_at`.
+2. **`refresh_tokens`**: UUID PK, `user_id` FK (Cascade), unique `token_hash` (SHA-256), `expires_at`, `created_at`, `revoked_at`, `replaced_by_token_id` FK (SetNull for token family rotation/reuse detection), `device_id`, `user_agent`, `ip_address`, `last_used_at`.
+3. **`groups`**: UUID PK, name, 3-letter currency code, `created_by` FK (Restrict), `created_at`, `updated_at`, `is_archived`.
+4. **`group_members`**: UUID PK, `group_id` FK (Cascade), `user_id` FK (Cascade), role (`OWNER`, `MEMBER`), `joined_at`, `left_at`. `UNIQUE(group_id, user_id)` prevents duplicate active membership.
+5. **`expenses`**: UUID PK, `group_id` FK (Cascade), description, `amount_minor` (BigInt in paise/cents, $>0$), currency, `paid_by_user_id` FK (Restrict), `split_method` (`EQUAL`, `EXACT`, `PERCENTAGE`, `SHARES`), category, notes, `created_at`, `updated_at`, `deleted_at` (soft delete for historical auditability).
+6. **`expense_splits`**: UUID PK, `expense_id` FK (Cascade), `user_id` FK (Restrict), `amount_minor` (BigInt, $\ge 0$). `UNIQUE(expense_id, user_id)` prevents duplicate participant shares.
+7. **`settlements`**: UUID PK, `group_id` FK (Cascade), `from_user_id` FK (Restrict), `to_user_id` FK (Restrict), `amount_minor` (BigInt, $>0$), currency, note, `created_at`, `deleted_at`.
+8. **`audit_events`**: UUID PK, `actor_user_id` FK (SetNull), `event_type`, `entity_type`, `entity_id`, `metadata` (JSONB, strictly non-financial audit attributes), `created_at`.
+
+### Important Constraints & Invariants
+- **No floating-point storage:** All monetary columns use `BIGINT` minor units (`amount_minor`).
+- **Zero balance columns:** No denormalized balance columns as a source of truth; all balances remain derived.
+- **Relational Integrity:** Foreign keys on all user/group/expense links; unique constraints on emails, memberships, splits, and token hashes.
+- **Atomic Invariant:** `SUM(splits.amount_minor) == expense.amount_minor` enforced in transactions.
+- **Token Security:** Raw refresh tokens are never persisted; only SHA-256 hashes are stored.
+
+### Migration & Seeding Status
+- **Migration:** Applied `20260823191548_init` via `npx prisma migrate dev` to live Neon PostgreSQL database.
+- **Seed:** Executed `npx tsx prisma/seed.ts` successfully, creating 6 deterministic users (Ketan, Rohit, Raj, Aman, Sneha, Pooja), 3 groups (Goa 2026, Apartment Bills, Weekend Dinner), and 6 realistic expenses with exact matching split sums.
+
+### Tests
+- `npm test` inside `backend/`: **8/8 passing tests** in `backend/tests/database.test.ts` executing directly against Neon PostgreSQL:
+  1. User creation and unique email constraint rejection
+  2. Group creation and duplicate membership rejection
+  3. Money precision & division invariance (₹250 split among 3 users: 8334 + 8333 + 8333 = 25000)
+  4. Atomic Expense Transaction with BigInt minor units
+  5. Transaction rollback on split sum invariant failure (zero partial records left)
+  6. Settlement creation and self-settlement rejection
+  7. Token security & hashing verification
+  8. Soft-deletion preservation of financial audit history
+- `npm run typecheck` inside `backend/`: **PASS (0 errors)**.
+
+### Documentation Created
+- `backend/DATABASE.md`: Complete entity-relationship documentation, column schemas, indexing rationale, transaction boundaries, and money representation rules.
+- `backend/SECURITY.md`: Dual JWT access/refresh token lifecycle, token rotation and reuse detection mechanics, bcrypt password hashing, and logging redaction policies.
+
+### Current Working Files
+- `backend/prisma/schema.prisma`
+- `backend/prisma/seed.ts`
+- `backend/src/config/env.ts`
+- `backend/src/infrastructure/database/prisma.ts`
+- `backend/src/utils/money.ts`
+- `backend/src/utils/security.ts`
+- `backend/src/utils/logger.ts`
+- `backend/src/errors/AppError.ts`
+- `backend/src/app.ts`
+- `backend/src/server.ts`
+- `backend/tests/database.test.ts`
+- `backend/DATABASE.md`
+- `backend/SECURITY.md`
+- `memory.md`
+
+
+
+## 2026-08-24 — Phase 6 — Core Backend REST API & Domain Service Architecture
+
+### Status
+Completed
+
+### Objective
+Implement the modular backend REST API layer, controllers, domain services, Zod validation middleware, JWT dual-token authentication flow, rate limiting, and request ID tracking without connecting the frontend or creating premature microservices.
+
+### Target Architecture Implemented
+- **Modular Monolith Flow:** Route $\to$ Request ID / Rate Limit / Auth Middleware $\to$ Zod Validation Middleware $\to$ Controller $\to$ Domain Service $\to$ Prisma / Neon PostgreSQL $\to$ DTO Mapping $\to$ Standard JSON Response.
+- **Base Versioning:** `/api/v1` prefix across all routes.
+- **Uniform Response Format:** Standard `{ success: true, data: ... }` and `{ success: false, error: { code, message } }`. Zero raw Prisma/SQL leaks or stack traces.
+
+### Endpoints Built & Verified
+1. **Authentication (`/api/v1/auth`)**:
+   - `POST /register`: Register user with normalized lowercase email, bcrypt hashed password (12 rounds), auto-session issuance.
+   - `POST /login`: Secure login with generic `INVALID_CREDENTIALS` error.
+   - `POST /refresh`: Refresh token rotation with reuse detection (triggers immediate family revocation).
+   - `POST /logout` & `POST /logout-all`: Session invalidation.
+   - `GET /me`: Authenticated user profile.
+2. **Users (`/api/v1/users`)**:
+   - `GET /me`, `PATCH /me`, `GET /:id` (sanitized DTO without password hashes or internal secrets).
+3. **Groups (`/api/v1/groups`)**:
+   - `POST /`: Atomic group creation with creator as `OWNER`.
+   - `GET /`: User's active groups.
+   - `GET /:groupId`: Detailed group overview with membership verification.
+   - `PATCH /:groupId` & `DELETE /:groupId`: Owner authorization required.
+   - `POST /:groupId/members` & `DELETE /:groupId/members/:userId`: Membership management.
+4. **Expenses (`/api/v1/expenses`)**:
+   - `POST /`: Server-side split calculation, membership verification, `SUM(splits) === amountMinor` invariant enforcement in atomic transactions. Supports optional `Idempotency-Key`.
+   - `GET /:expenseId`: Expense details with participant allocations.
+   - `PATCH /:expenseId`: Atomic update and split recalculation.
+   - `DELETE /:expenseId`: Soft-deletion (`deleted_at = now()`) preserving auditability.
+   - `GET /groups/:groupId/expenses`: Paginated chronological group expense feed.
+5. **Balances (`/api/v1/groups/:groupId/balances`)**:
+   - `GET /`: Live group net balances derived dynamically from non-deleted expenses, splits, and settlements.
+   - `GET /:userId`: Bilateral breakdown calculation powering Person Balance Detail screen.
+6. **Settlements (`/api/v1/groups/:groupId/settlements`)**:
+   - `POST /`: Real payment recording with self-settlement prohibition, mutual membership checks, and immediate balance reduction.
+   - `GET /`: Paginated recorded payment history.
+7. **Activity Feed (`/api/v1/activity`)**:
+   - `GET /`: Unified chronological stream of shared expenses and settlements across all user groups.
+8. **Dashboard (`/api/v1/dashboard`)**:
+   - `GET /`: Home dashboard aggregation. Invariant verified: `totalNetBalanceMinor === sum(group.userNetBalanceMinor)`.
+
+### Tests
+- **Integration Test Suite (`backend/tests/api.test.ts`)**: **17/17 passing integration tests** covering registration, login, token rotation/reuse detection, group authorization, ₹250 equal split (8334 + 8333 + 8333), balance derivations, bilateral breakdowns, settlement debt reductions, activity feed, and dashboard zero-divergence invariant.
+- **Database Test Suite (`backend/tests/database.test.ts`)**: **8/8 passing tests**.
+- **Backend Total Tests**: **25/25 passing tests**.
+- **Frontend Test Suite**: **31/31 passing tests** across 7 suites.
+- **TypeScript Typecheck**: **PASS (0 errors)** in both `backend/` and root.
+
+### Documentation Created
+- `backend/API.md`: Complete endpoint documentation, request/response JSON schemas, error codes, and authentication/authorization matrix.
+
+### Current Working Files
+- `backend/src/app.ts`
+- `backend/src/middleware/auth.middleware.ts`
+- `backend/src/middleware/validation.middleware.ts`
+- `backend/src/middleware/rateLimit.middleware.ts`
+- `backend/src/middleware/requestId.middleware.ts`
+- `backend/src/modules/auth/auth.service.ts`
+- `backend/src/modules/groups/group.service.ts`
+- `backend/src/modules/expenses/expense.service.ts`
+- `backend/src/modules/balances/balance.service.ts`
+- `backend/src/modules/settlements/settlement.service.ts`
+- `backend/src/modules/activity/activity.service.ts`
+- `backend/src/modules/dashboard/dashboard.service.ts`
+- `backend/tests/api.test.ts`
+- `backend/API.md`
+- `memory.md`
+
+
+
+## 2026-08-24 — Phase 7 — Frontend ↔ Backend API Integration & Session Synchronization
+
+### Status
+Completed
+
+### Objective
+Integrate the React Native Expo frontend with the live Settle backend API and PostgreSQL ledger while preserving the finalized Stitch visual language, design hierarchy, and components without leaking sensitive credentials or duplicating backend financial calculation logic on the client.
+
+### Architecture Implemented
+- **Centralized API Client (`src/services/api/client.ts`)**:
+  - Encapsulates `BASE_URL` (`EXPO_PUBLIC_API_BASE_URL=http://localhost:5000/api/v1`).
+  - Automatic `Authorization: Bearer <token>` attachment.
+  - Transparent 401 handling with single in-flight refresh token mutex (`performSingleRefresh()`) to prevent concurrent refresh stampedes.
+  - Standard error normalization mapping backend JSON errors (`ApiError`).
+- **Secure Token Storage (`src/services/api/tokenStorage.ts`)**:
+  - Uses `expo-secure-store` on native iOS/Android with `localStorage`/in-memory fallback on web.
+  - Zero storage of database credentials or JWT signing secrets.
+- **Service Façade (`src/services/api/settleApi.ts`)**:
+  - Full typed DTO consumer for Auth, Users, Groups, Expenses, Balances, Settlements, Activity, and Dashboard.
+- **Authentication & Session Store (`src/store/appStore.ts`)**:
+  - Manages session lifecycle (`currentUser`, `isAuthenticated`, `isSessionLoading`, `login`, `register`, `logout`, `initSession`).
+
+### Screens Connected to Backend APIs
+1. **Home / Dashboard (`app/(tabs)/index.tsx` & `src/services/homeFeedService.ts`)**:
+   - Consumes `GET /api/v1/dashboard` & `GET /api/v1/auth/me`.
+   - Total Net Balance, group balance cards, and recent activity stream derived authoritatively from the server.
+2. **Groups Screen (`app/(tabs)/groups.tsx`)**:
+   - Consumes `GET /api/v1/groups` and `GET /api/v1/groups/:groupId/balances`.
+   - Group creation wired to `POST /api/v1/groups`.
+3. **Group Overview Screen (`app/groups/[id].tsx`)**:
+   - Consumes `GET /api/v1/groups/:groupId`, `GET /api/v1/groups/:groupId/expenses`, and `GET /api/v1/groups/:groupId/balances`.
+   - Displays real member roster, total group spend, and user position.
+4. **Group Balances Screen (`app/groups/[id]/balances.tsx`)**:
+   - Consumes `GET /api/v1/groups/:groupId/balances/:userId`.
+   - Displays bilateral breakdown calculation from server.
+5. **Group Settlement Screen (`app/groups/[id]/settle.tsx`)**:
+   - Consumes `GET /api/v1/groups/:groupId/balances` for simplified transfer visualization.
+   - Settlement recording modal wired to `POST /api/v1/groups/:groupId/settlements`.
+6. **Global Settlement Screen (`app/settle.tsx`)**:
+   - Connected to `GET /api/v1/dashboard` for cross-group settlement reviews.
+7. **Expense Details Screen (`app/expenses/[id].tsx`)**:
+   - Consumes `GET /api/v1/expenses/:id`.
+   - Delete action wired to `DELETE /api/v1/expenses/:id`.
+8. **Add/Edit Expense Screen (`app/expenses/new.tsx`)**:
+   - Creates via `POST /api/v1/expenses` and edits via `PATCH /api/v1/expenses/:id`.
+   - Supports `EQUAL`, `EXACT`, `PERCENTAGE`, and `SHARES` methods with server-authoritative split allocation.
+9. **Activity Screen (`app/(tabs)/activity.tsx`)**:
+   - Consumes `GET /api/v1/activity` for chronologically sorted shared transaction streams.
+10. **Authentication Screen (`app/auth.tsx`)**:
+    - Complete Sign In (`POST /api/v1/auth/login`) and Sign Up (`POST /api/v1/auth/register`) flows.
+
+### Verification & Tests
+- **Frontend Test Suite (`npx jest --runInBand`)**: **7/7 suites, 31/31 tests passing**.
+- **Backend Test Suite (`backend/tests/api.test.ts` & `backend/tests/database.test.ts`)**: **2/2 suites, 25/25 tests passing**.
+- **Root Typecheck (`npm run typecheck`)**: **PASS (0 errors)**.
+- **Backend Typecheck (`cd backend && npm run typecheck`)**: **PASS (0 errors)**.
+
+### Current Working Files
+- `src/services/api/client.ts`
+- `src/services/api/tokenStorage.ts`
+- `src/services/api/errors.ts`
+- `src/services/api/types.ts`
+- `src/services/api/settleApi.ts`
+- `src/store/appStore.ts`
+- `src/services/homeFeedService.ts`
+- `app/(tabs)/index.tsx`
+- `app/(tabs)/groups.tsx`
+- `app/(tabs)/activity.tsx`
+- `app/groups/[id].tsx`
+- `app/groups/[id]/balances.tsx`
+- `app/groups/[id]/settle.tsx`
+- `app/settle.tsx`
+- `app/expenses/[id].tsx`
+- `app/expenses/new.tsx`
+- `app/auth.tsx`
+- `memory.md`
+
+### Next Recommended Phase
+- **Phase 8 — Full System Audit & Hardening**: End-to-end audit of financial precision, authorization edge cases, network timeout fallbacks, race conditions, and UX state consistency across all real database scenarios.
+
+## 2026-08-24 — Phase 8 — Full System Audit, Security, Financial Correctness & Edge-Case Hardening
+
+### Status
+Completed
+
+### Audit Summary & Verified Dimensions
+- **1. Financial Invariants & Remainder Distribution**:
+  - Validated integer minor-unit division across all division scenarios:
+    - ₹1 / 3 = [34, 33, 33] (sum = 100 minor units)
+    - ₹10 / 3 = [334, 333, 333] (sum = 1000 minor units)
+    - ₹100 / 6 = [1667, 1667, 1667, 1667, 1666, 1666] (sum = 10000 minor units)
+    - ₹250 / 3 = [8334, 8333, 8333] (sum = 25000 minor units)
+    - ₹999 / 7 = exact 99900 minor units with zero loss
+    - ₹1000 / 6 = exact 100000 minor units with zero loss
+  - Verified `SUM(splits) === amountMinor` enforced server-side with zero floating point representation drift.
+- **2. Ledger Conservation (`SUM(member net balances) === 0`)**:
+  - Proved zero-sum group balance conservation invariant holds strictly across multi-debtor, multi-creditor, equal, exact, percentage, and shares split graphs.
+  - Validated with 20 randomized multi-party transaction property-based graph simulations (`tests/financial_audit.test.ts`).
+- **3. Settlement Conservation & Historical Preservation**:
+  - Verified bilateral settlement reduces debtor obligation and creditor receivable with zero money destruction or phantom expense generation (e.g. ₹1000 debt - ₹400 payment = ₹600 remaining debt).
+  - Enforced settlement protection policy: Attempting to delete an expense after settlements exist in a group returns `409 Conflict (CANNOT_DELETE_SETTLED_EXPENSE)` to preserve immutable historical financial audit trails.
+- **4. Idempotency & Concurrency Hardening**:
+  - Implemented `idempotency.middleware.ts` for mutation routes (`POST /expenses`, `POST /settlements`).
+  - Tested duplicate requests with matching `Idempotency-Key` return identical cached response with `X-Idempotency-Replay: true`.
+  - Tested duplicate requests with mismatched payloads reject with `409 Conflict (IDEMPOTENCY_CONFLICT)`.
+- **5. Authorization & IDOR Isolation**:
+  - Proved disjoint non-member users cannot read, list, create expenses, or record settlements in groups they do not belong to (returns `403 Forbidden`).
+- **6. Authentication & Token Lifecycle**:
+  - Verified 15-minute access token and 30-day SHA-256 hashed refresh token lifecycle.
+  - Verified token rotation and token reuse detection invalidating active session lineages upon replay.
+- **7. UI State & Theme Synchronization**:
+  - Replaced temporary/broken icons with universal, high-performance SVG vector icons.
+  - Added real-time description-only search filtering and contextual relationship statuses ("You lent", "You owe") in Activity tab.
+
+### Verification Results
+- **Backend Test Suites (`npm test` in `backend/`)**: **3/3 suites passed, 38/38 tests passed**.
+  - `tests/database.test.ts`: 8/8 passed
+  - `tests/api.test.ts`: 17/17 passed
+  - `tests/financial_audit.test.ts`: 13/13 passed
+- **Frontend Typecheck (`npm run typecheck`)**: **PASS (0 errors)**.
+
+### Current Working Files
+- `backend/src/middleware/idempotency.middleware.ts`
+- `backend/src/errors/AppError.ts`
+- `backend/src/modules/expenses/expense.service.ts`
+- `backend/src/modules/expenses/expense.routes.ts`
+- `backend/src/modules/settlements/settlement.routes.ts`
+- `backend/tests/financial_audit.test.ts`
+- `src/components/Icon.tsx`
+- `app/(tabs)/activity.tsx`
+- `memory.md`
+
+### Next Recommended Phase
+- **Phase 9 — Group Creation & Member Invitation Redesign**: Multi-step group creation wizard, cryptographically secure shareable group invites, public group preview, and frictionless member joining.
+
+## 2026-08-24 — Phase 9 — Redesign Group Creation + Member Invitation Flow
+
+### Status
+Completed
+
+### Completed Work & Architecture
+1. **Free Product Invariant Enforced**:
+   - Zero subscriptions, zero paywalls, zero group/member limits, and zero ad monetization. Core splitting and settlements are 100% free.
+2. **Database Schema Additions (`backend/prisma/schema.prisma`)**:
+   - `GroupType` enum (`TRIP`, `APARTMENT`, `HOME`, `COUPLE`, `FRIENDS`, `OTHER`).
+   - `GroupInvitation` model with indexes on `groupId`, `inviteCode` (unique 6-char user code e.g. `GOA7K2`), and `tokenHash` (SHA-256 hash of random 24-byte base64url token).
+   - Synced schema to Neon PostgreSQL with `npx prisma db push` and regenerated client with `npx prisma generate`.
+3. **Backend API Endpoints**:
+   - `GET /api/v1/users/search?q=...` — User substring search by name/email excluding requester.
+   - `POST /api/v1/groups` — Multi-member atomic group creation with initial invite generation.
+   - `POST /api/v1/groups/:groupId/invites` — Generates fresh shareable invite code/link.
+   - `GET /api/v1/groups/invites/:codeOrToken` — Public group preview (group name, type, creator name, member roster, currency) with zero financial leaks.
+   - `POST /api/v1/groups/invites/:codeOrToken/join` — Transactional group join with single active membership constraint.
+   - `DELETE /api/v1/groups/:groupId/members/:userId` — Rejects with `409 Conflict (MEMBER_HAS_UNSETTLED_BALANCE)` if member has outstanding balance.
+4. **Frontend Multi-Step Creation Wizard (`app/groups/new.tsx`)**:
+   - **Step 1: Group Details**: Name input with autofocus + Category Chips (Trip, Apartment, Home, Couple, Friends, Other) + Currency indicator.
+   - **Step 2: Add Members**: Creator ("Ketan (You)") locked as owner; live Settle user search & adder chips; "Create with only me" single-member group support.
+   - **Step 3: Review & Create**: Comprehensive review card with group category, currency, and member list before executing atomic `POST /api/v1/groups`.
+   - **Step 4: Group Created & Native Share Sheet**: Displays invite code + copy button + OS native share sheet (`Share.share`) before navigating to group overview.
+5. **Group Invitation Preview Screen (`app/join/[token].tsx`)**:
+   - Clean public preview allowing authenticated or unauthenticated users to join in 1 tap without losing invite state.
+6. **Group Overview & Tab Bar Fixes**:
+   - Added `+ Invite (Code: XXXXXX)` share trigger chip in [`app/groups/[id].tsx`](file:///c:/Users/Ketan/Desktop/Settle%20%28Splitwise%20Pro%20%29/app/groups/%5Bid%5D.tsx).
+   - Increased bottom tab bar height to 68px and adjusted label margin so tab titles ("Home", "Groups", "Activity", "Settle") are never clipped or hidden.
+   - Fixed expense description input placeholder to `"Dinner, Groceries, Uber, Hotel..."` with zero hardcoded defaults.
+
+### Verification Results
+- **Backend Test Suite (`npm test` in `backend/`)**: **4/4 test suites passed, 50/50 tests passed (100% PASS)**.
+  - `tests/database.test.ts`: 8/8 passed
+  - `tests/api.test.ts`: 17/17 passed
+  - `tests/financial_audit.test.ts`: 13/13 passed
+  - `tests/invitation_group_flow.test.ts`: 12/12 passed
+- **Frontend Typecheck (`npm run typecheck`)**: **PASS (0 errors)**.
+
+### Canonical Invite Link Architecture
+- **Canonical Utility**: [`src/services/invitations/inviteUtils.ts`](file:///c:/Users/Ketan/Desktop/Settle%20%28Splitwise%20Pro%20%29/src/services/invitations/inviteUtils.ts)
+  - `getInviteBaseUrl()`: Configurable via `EXPO_PUBLIC_INVITE_BASE_URL` (defaults to `window.location.origin` in web dev, and `settle://` on native).
+  - `buildInviteUrl(tokenOrCode)`: Generates `<base>/invite/<tokenOrCode>`.
+  - `shareGroupInvite()`: Invokes native OS share sheet (`Share.share` / `navigator.share`).
+  - `copyToClipboard()`: Native & Web clipboard writer with subtle in-app toast feedback.
+
+### Current Working Files
+- `backend/src/modules/groups/group.service.ts`
+- `backend/src/config/env.ts`
+- `src/services/invitations/inviteUtils.ts`
+- `src/services/geo/currencyDetection.ts`
+- `src/components/Input.tsx`
+- `app/groups/new.tsx`
+- `app/groups/[id].tsx`
+- `app/invite/[token].tsx`
+- `app/join/[token].tsx`
+- `app/auth.tsx`
+- `app/(tabs)/groups.tsx`
+- `app/(tabs)/_layout.tsx`
+- `memory.md`
 
 

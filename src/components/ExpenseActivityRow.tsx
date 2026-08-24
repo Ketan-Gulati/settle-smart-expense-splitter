@@ -14,6 +14,7 @@ export interface ExpenseActivityRowProps {
   userShareMinor: number; // positive = lent, negative = borrowed
   currency?: string;
   categoryIconName?: IconName;
+  statusText?: string;
   onPress?: () => void;
   showDivider?: boolean;
   style?: ViewStyle;
@@ -28,6 +29,7 @@ export const ExpenseActivityRow: React.FC<ExpenseActivityRowProps> = ({
   userShareMinor,
   currency = 'INR',
   categoryIconName = 'receipt-outline',
+  statusText,
   onPress,
   showDivider = true,
   style,
@@ -36,6 +38,15 @@ export const ExpenseActivityRow: React.FC<ExpenseActivityRowProps> = ({
 
   const isLent = userShareMinor > 0;
   const isBorrowed = userShareMinor < 0;
+
+  // Fallback if statusText not provided
+  const displayStatus =
+    statusText ||
+    (isLent
+      ? `You lent ${currency === 'INR' ? '₹' : ''}${(userShareMinor / 100).toFixed(2)}`
+      : isBorrowed
+        ? `You owe ${payerName} ${currency === 'INR' ? '₹' : ''}${Math.abs(userShareMinor / 100).toFixed(2)}`
+        : 'Settled');
 
   return (
     <Pressable
@@ -61,6 +72,15 @@ export const ExpenseActivityRow: React.FC<ExpenseActivityRowProps> = ({
         </Text>
         <Text variant="caption" color={theme.colors.textMuted} numberOfLines={1}>
           {groupName} • {timestamp}
+        </Text>
+        <Text
+          variant="caption"
+          weight="medium"
+          color={isLent ? theme.colors.positive : isBorrowed ? theme.colors.negative : theme.colors.textSecondary}
+          numberOfLines={1}
+          style={{ marginTop: 2 }}
+        >
+          {displayStatus}
         </Text>
       </View>
 

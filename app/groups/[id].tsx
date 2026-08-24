@@ -1,8 +1,10 @@
 import { useEffect, useState, useCallback } from 'react';
-import { View, ScrollView, StyleSheet, ActivityIndicator, Pressable } from 'react-native';
-import { useLocalSearchParams, useRouter } from 'expo-router';
+import { View, ScrollView, StyleSheet, ActivityIndicator, Pressable, Modal } from 'react-native';
+import { useLocalSearchParams, useRouter, Stack } from 'expo-router';
 import {
   Text,
+  Button,
+  Surface,
   DetailHeader,
   MoneyDisplay,
   Avatar,
@@ -10,13 +12,10 @@ import {
   EmptyState,
 } from '@/components';
 import { useAppTheme } from '@/hooks/useAppTheme';
-import { groupRepository, GroupEntity } from '@/repositories/groupRepository';
-import { expenseRepository } from '@/repositories/expenseRepository';
-import { userRepository, UserEntity } from '@/repositories/userRepository';
-import { balanceService } from '@/services/balanceService';
-import { ExpenseEntity } from '@/domain/expense/expense';
-import { GroupBalanceSummary } from '@/domain/balance/balanceEngine';
+import { SettleApiService } from '@/services/api/settleApi';
+import { GroupDTO, ExpenseDTO, GroupBalancesDTO, UserDTO } from '@/services/api/types';
 import { useAppStore } from '@/store/appStore';
+import { shareGroupInvite, copyToClipboard, buildInviteUrl } from '@/services/invitations/inviteUtils';
 
 export default function GroupOverviewScreen() {
   const { id } = useLocalSearchParams<{ id: string }>();
@@ -24,36 +23,40 @@ export default function GroupOverviewScreen() {
   const router = useRouter();
   const dataVersion = useAppStore((s) => s.dataVersion);
 
-  const [currentUser, setCurrentUser] = useState<UserEntity | null>(null);
-  const [group, setGroup] = useState<GroupEntity | null>(null);
-  const [expenses, setExpenses] = useState<ExpenseEntity[]>([]);
-  const [balanceSummary, setBalanceSummary] = useState<GroupBalanceSummary | null>(null);
-  const [activeTab, setActiveTab] = useState<'overview' | 'expenses' | 'balances' | 'settle'>(
-    'overview'
-  );
+  const [currentUser, setCurrentUser] = useState<UserDTO | null>(null);
+  const [group, setGroup] = useState<GroupDTO | null>(null);
+  const [expenses, setExpenses] = useState<ExpenseDTO[]>([]);
+  const [balances, setBalances] = useState<GroupBalancesDTO | null>(null);
+  const [activeTab, setActiveTab] = useState<'overview' | 'expenses' | 'balances' | 'settle'>('overview');
   const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+  const [inviteModalVisible, setInviteModalVisible] = useState(false);
+  const [copiedCode, setCopiedCode] = useState(false);
+  const [regeneratingInvite, setRegeneratingInvite] = useState(false);
 
   const loadGroupDetails = useCallback(async () => {
-    if (!id) return;
+    if (!id) {
+      setError('No group ID provided');
+      setLoading(false);
+      return;
+    }
     try {
       setLoading(true);
-      const user = await userRepository.getOrCreateDefaultUser();
+      setError(null);
+      const [user, groupData, expList, groupBals] = await Promise.all([
+        SettleApiService.getMe(),
+        SettleApiService.getGroupDetails(id),
+        SettleApiService.getGroupExpenses(id),
+        SettleApiService.getGroupBalances(id),
+      ]);
+
       setCurrentUser(user);
-
-      const groupData = await groupRepository.findById(id);
       setGroup(groupData);
-
-      if (groupData) {
-        const expList = await expenseRepository.findByGroup(id);
-        setExpenses(expList);
-
-        const balRes = await balanceService.getGroupBalances(id);
-        if (balRes.success) {
-          setBalanceSummary(balRes.data);
-        }
-      }
-    } catch (err) {
+      setExpenses(expList);
+      setBalances(groupBals);
+    } catch (err: any) {
       console.error('Failed to load group:', err);
+      setError(err?.message || 'Group not found or access denied.');
     } finally {
       setLoading(false);
     }
@@ -63,34 +66,85 @@ export default function GroupOverviewScreen() {
     loadGroupDetails();
   }, [loadGroupDetails, dataVersion]);
 
-  if (loading || !group) {
+  if (loading) {
     return (
       <View style={[styles.center, { backgroundColor: theme.colors.background }]}>
+        <Stack.Screen options={{ headerShown: false }} />
         <ActivityIndicator size="large" color={theme.colors.primary} />
       </View>
     );
   }
 
-  const myBalance =
-    (currentUser && balanceSummary?.userBalances[currentUser.id]?.netBalanceMinor) || 0;
+  if (error || !group) {
+    return (
+      <View style={[styles.container, { backgroundColor: theme.colors.background }]}>
+        <Stack.Screen options={{ headerShown: false }} />
+        <DetailHeader title="Group" onBackPress={() => router.replace('/(tabs)/groups' as any)} />
+        <View style={{ padding: 24, marginTop: 40 }}>
+          <EmptyState
+            title="Group Not Found"
+            description={error || 'This group may have been deleted or the link is invalid.'}
+            actionLabel="← Back to Groups"
+            onAction={() => router.replace('/(tabs)/groups' as any)}
+          />
+        </View>
+      </View>
+    );
+  }
+
+  const myBalance = balances?.userNetBalanceMinor || 0;
   const isPositive = myBalance > 0;
   const isNegative = myBalance < 0;
+  const totalGroupSpend = expenses.reduce((acc, e) => acc + e.amountMinor, 0);
 
-  const getPayerName = (payerId: string) => {
-    if (currentUser && payerId === currentUser.id) return 'You';
-    return group.members?.find((m) => m.id === payerId)?.name || 'Someone';
+  const handleShareInvite = async () => {
+    if (!group?.activeInvite) return;
+    await shareGroupInvite({
+      groupName: group.name,
+      inviterName: currentUser?.name,
+      inviteTokenOrCode: group.activeInvite.inviteCode,
+      inviteCode: group.activeInvite.inviteCode,
+    });
   };
 
-  const getUserShareMinor = (expense: ExpenseEntity): number => {
+  const handleCopyInviteLink = async () => {
+    if (!group?.activeInvite) return;
+    const url = buildInviteUrl(group.activeInvite.inviteCode);
+    await copyToClipboard(url);
+    setCopiedCode(true);
+    setTimeout(() => setCopiedCode(false), 2000);
+  };
+
+  const handleCopyInviteCode = async () => {
+    if (!group?.activeInvite) return;
+    await copyToClipboard(group.activeInvite.inviteCode);
+    setCopiedCode(true);
+    setTimeout(() => setCopiedCode(false), 2000);
+  };
+
+  const handleRegenerateInvite = async () => {
+    if (!group) return;
+    try {
+      setRegeneratingInvite(true);
+      const newInvite = await SettleApiService.createGroupInvite(group.id);
+      setGroup({ ...group, activeInvite: newInvite });
+    } catch (e) {
+      console.error('Regenerate invite error', e);
+    } finally {
+      setRegeneratingInvite(false);
+    }
+  };
+
+  const getUserShareMinor = (expense: ExpenseDTO): number => {
     if (!currentUser) return 0;
-    const isPayer = expense.payerId === currentUser.id;
+    const isPayer = expense.paidByUserId === currentUser.id;
     const split = expense.splits.find((s) => s.userId === currentUser.id);
     const userSplitAmount = split ? split.amountMinor : 0;
 
     if (isPayer) {
-      return expense.amountMinor - userSplitAmount; // User lent this portion
+      return expense.amountMinor - userSplitAmount;
     } else if (split) {
-      return -userSplitAmount; // User borrowed this portion
+      return -userSplitAmount;
     }
     return 0;
   };
@@ -102,24 +156,6 @@ export default function GroupOverviewScreen() {
     }
   };
 
-  // Compute pairwise member balances for the Balances Tab
-  const getMemberPairwiseBalanceMinor = (otherUserId: string): number => {
-    if (!currentUser) return 0;
-    let youPaidForPerson = 0;
-    let personPaidForYou = 0;
-
-    for (const exp of expenses) {
-      if (exp.payerId === currentUser.id) {
-        const split = exp.splits.find((s) => s.userId === otherUserId);
-        if (split) youPaidForPerson += split.amountMinor;
-      } else if (exp.payerId === otherUserId) {
-        const split = exp.splits.find((s) => s.userId === currentUser.id);
-        if (split) personPaidForYou += split.amountMinor;
-      }
-    }
-    return youPaidForPerson - personPaidForYou;
-  };
-
   return (
     <View style={[styles.container, { backgroundColor: theme.colors.background }]}>
       {/* 1. Detail Header */}
@@ -127,8 +163,10 @@ export default function GroupOverviewScreen() {
         title={group.name}
         onBackPress={() => router.back()}
         rightAction={
-          <Pressable onPress={() => router.push('/settings' as any)}>
-            <Text style={{ fontSize: 20 }}>⚙</Text>
+          <Pressable onPress={() => setInviteModalVisible(true)} style={{ padding: 4 }}>
+            <Text variant="caption" weight="bold" color={theme.colors.primary}>
+              + Invite
+            </Text>
           </Pressable>
         }
       />
@@ -140,29 +178,40 @@ export default function GroupOverviewScreen() {
             {group.name}
           </Text>
           <Text variant="caption" color={theme.colors.textMuted} style={styles.groupSubtitle}>
-            {group.members?.length || 1} members · {group.currency}
+            {group.members?.length || group.memberCount || 1} members · {group.currency}
           </Text>
 
-          {/* Member Avatar Stack */}
-          <View style={styles.avatarStack}>
-            {group.members?.slice(0, 4).map((member, idx) => (
-              <View
-                key={member.id}
-                style={[
-                  styles.avatarWrapper,
-                  { marginLeft: idx === 0 ? 0 : -10, zIndex: 10 - idx },
-                ]}
-              >
-                <Avatar name={member.name} size="medium" />
-              </View>
-            ))}
-            {(group.members?.length || 0) > 4 && (
-              <View style={[styles.moreAvatar, { marginLeft: -10, zIndex: 5 }]}>
-                <Text variant="caption" weight="bold" color={theme.colors.textSecondary}>
-                  +{(group.members?.length || 0) - 4}
-                </Text>
-              </View>
-            )}
+          {/* Member Avatar Stack & Invite button */}
+          <View style={styles.avatarRowWithInvite}>
+            <View style={styles.avatarStack}>
+              {group.members?.slice(0, 4).map((member, idx) => (
+                <View
+                  key={member.id}
+                  style={[
+                    styles.avatarWrapper,
+                    { marginLeft: idx === 0 ? 0 : -10, zIndex: 10 - idx },
+                  ]}
+                >
+                  <Avatar name={member.name} size="medium" />
+                </View>
+              ))}
+              {(group.members?.length || 0) > 4 && (
+                <View style={[styles.moreAvatar, { marginLeft: -10, zIndex: 5 }]}>
+                  <Text variant="caption" weight="bold" color={theme.colors.textSecondary}>
+                    +{(group.members?.length || 0) - 4}
+                  </Text>
+                </View>
+              )}
+            </View>
+
+            <Pressable
+              onPress={() => setInviteModalVisible(true)}
+              style={[styles.inviteChip, { backgroundColor: theme.colors.surfaceSubtle, borderColor: theme.colors.border }]}
+            >
+              <Text variant="caption" weight="bold" color={theme.colors.primary}>
+                + Invite {group.activeInvite ? `(${group.activeInvite.inviteCode})` : 'People'}
+              </Text>
+            </Pressable>
           </View>
         </View>
 
@@ -173,7 +222,7 @@ export default function GroupOverviewScreen() {
               TOTAL GROUP SPEND
             </Text>
             <MoneyDisplay
-              amountMinor={group.totalSpentMinor || 0}
+              amountMinor={totalGroupSpend}
               currency={group.currency}
               variant="large"
               sentiment="neutral"
@@ -265,15 +314,15 @@ export default function GroupOverviewScreen() {
               <View style={styles.expensesList}>
                 {expenses.slice(0, 5).map((exp, idx) => {
                   const userShareMinor = getUserShareMinor(exp);
-                  const isPayer = exp.payerId === currentUser?.id;
+                  const isPayer = exp.paidByUserId === currentUser?.id;
 
                   return (
                     <ExpenseActivityRow
                       key={exp.id}
                       title={exp.description}
                       groupName={group.name}
-                      timestamp={new Date(exp.date).toLocaleDateString()}
-                      payerName={isPayer ? 'You' : getPayerName(exp.payerId)}
+                      timestamp={new Date(exp.createdAt).toLocaleDateString()}
+                      payerName={isPayer ? 'You' : exp.paidByUserName}
                       totalAmountMinor={exp.amountMinor}
                       userShareMinor={userShareMinor}
                       currency={exp.currency}
@@ -313,15 +362,15 @@ export default function GroupOverviewScreen() {
               <View style={styles.expensesList}>
                 {expenses.map((exp, idx) => {
                   const userShareMinor = getUserShareMinor(exp);
-                  const isPayer = exp.payerId === currentUser?.id;
+                  const isPayer = exp.paidByUserId === currentUser?.id;
 
                   return (
                     <ExpenseActivityRow
                       key={exp.id}
                       title={exp.description}
                       groupName={group.name}
-                      timestamp={new Date(exp.date).toLocaleDateString()}
-                      payerName={isPayer ? 'You' : getPayerName(exp.payerId)}
+                      timestamp={new Date(exp.createdAt).toLocaleDateString()}
+                      payerName={isPayer ? 'You' : exp.paidByUserName}
                       totalAmountMinor={exp.amountMinor}
                       userShareMinor={userShareMinor}
                       currency={exp.currency}
@@ -343,20 +392,24 @@ export default function GroupOverviewScreen() {
               Group Member Balances
             </Text>
 
-            {group.members
-              ?.filter((m) => m.id !== currentUser?.id)
+            {balances?.members
+              ?.filter((m) => m.userId !== currentUser?.id)
               .map((member) => {
-                const bal = getMemberPairwiseBalanceMinor(member.id);
-                const owesYou = bal > 0;
-                const youOwe = bal < 0;
+                const bal = member.netBalanceMinor;
 
                 return (
                   <Pressable
-                    key={member.id}
+                    key={member.userId}
                     onPress={() =>
-                      router.push(`/groups/${group.id}/balances?targetUserId=${member.id}` as any)
+                      router.push(`/groups/${group.id}/balances?targetUserId=${member.userId}` as any)
                     }
-                    style={styles.memberBalanceCard}
+                    style={[
+                      styles.memberBalanceCard,
+                      {
+                        backgroundColor: theme.colors.surface,
+                        borderColor: theme.colors.border,
+                      },
+                    ]}
                   >
                     <Avatar name={member.name} size="medium" />
                     <View style={styles.memberBalanceInfo}>
@@ -366,18 +419,14 @@ export default function GroupOverviewScreen() {
                       <Text
                         variant="caption"
                         color={
-                          owesYou
-                            ? theme.colors.positive
-                            : youOwe
+                          bal !== 0
+                            ? bal < 0
                               ? theme.colors.negative
-                              : theme.colors.textMuted
+                              : theme.colors.positive
+                            : theme.colors.textMuted
                         }
                       >
-                        {owesYou
-                          ? `${member.name} owes you`
-                          : youOwe
-                            ? `You owe ${member.name}`
-                            : 'Settled up'}
+                        {bal > 0 ? 'Gets back' : bal < 0 ? 'Owes' : 'Settled up'}
                       </Text>
                     </View>
 
@@ -385,7 +434,7 @@ export default function GroupOverviewScreen() {
                       amountMinor={Math.abs(bal)}
                       currency={group.currency}
                       variant="large"
-                      sentiment={owesYou ? 'positive' : youOwe ? 'negative' : 'neutral'}
+                      sentiment={bal > 0 ? 'positive' : bal < 0 ? 'negative' : 'neutral'}
                     />
                   </Pressable>
                 );
@@ -393,6 +442,88 @@ export default function GroupOverviewScreen() {
           </View>
         )}
       </ScrollView>
+
+      {/* Invite People Sheet Modal */}
+      <Modal visible={inviteModalVisible} animationType="slide" transparent>
+        <View style={[styles.modalOverlay, { backgroundColor: theme.colors.overlay }]}>
+          <Surface variant="elevated" style={styles.modalContent}>
+            <View style={styles.modalHeaderRow}>
+              <Text variant="title" weight="bold">
+                Invite to {group.name}
+              </Text>
+              <Pressable onPress={() => setInviteModalVisible(false)} style={styles.closeBtn}>
+                <Text variant="body" weight="bold" color={theme.colors.textMuted}>
+                  ✕
+                </Text>
+              </Pressable>
+            </View>
+
+            <Text variant="bodySecondary" color={theme.colors.textMuted}>
+              Share this secure invite with friends so they can join with one tap.
+            </Text>
+
+            {group.activeInvite ? (
+              <View style={styles.inviteDetailsCard}>
+                <View style={[styles.codeBox, { backgroundColor: theme.colors.surfaceSubtle }]}>
+                  <Text variant="caption" weight="bold" color={theme.colors.textMuted}>
+                    INVITE CODE
+                  </Text>
+                  <Text variant="displayHero" weight="bold" color={theme.colors.primary} style={{ letterSpacing: 4 }}>
+                    {group.activeInvite.inviteCode}
+                  </Text>
+                </View>
+
+                <View style={styles.modalActionButtons}>
+                  <Button
+                    title={copiedCode ? '✓ Copied!' : 'Copy Link 🔗'}
+                    variant="subtle"
+                    size="large"
+                    onPress={handleCopyInviteLink}
+                    style={{ flex: 1 }}
+                  />
+                  <Button
+                    title="Share Invite 📤"
+                    variant="primary"
+                    size="large"
+                    onPress={handleShareInvite}
+                    style={{ flex: 1 }}
+                  />
+                </View>
+
+                <Pressable onPress={handleCopyInviteCode} style={styles.copyCodeOption}>
+                  <Text variant="caption" weight="semibold" color={theme.colors.textSecondary}>
+                    Copy Code Only ({group.activeInvite.inviteCode})
+                  </Text>
+                </Pressable>
+              </View>
+            ) : (
+              <View style={styles.noInviteState}>
+                <Text variant="body" color={theme.colors.textMuted}>
+                  No active invite for this group.
+                </Text>
+                <Button
+                  title={regeneratingInvite ? 'Generating...' : 'Generate New Invite'}
+                  variant="primary"
+                  size="medium"
+                  onPress={handleRegenerateInvite}
+                  loading={regeneratingInvite}
+                  style={{ marginTop: 8 }}
+                />
+              </View>
+            )}
+
+            {group.activeInvite && (
+              <View style={styles.revokeSection}>
+                <Pressable onPress={handleRegenerateInvite} disabled={regeneratingInvite}>
+                  <Text variant="caption" weight="medium" color={theme.colors.negative} align="center">
+                    {regeneratingInvite ? 'Generating fresh invite...' : '↻ Revoke & Generate New Invite'}
+                  </Text>
+                </Pressable>
+              </View>
+            )}
+          </Surface>
+        </View>
+      </Modal>
     </View>
   );
 }
@@ -425,10 +556,21 @@ const styles = StyleSheet.create({
   groupSubtitle: {
     letterSpacing: 0.2,
   },
+  avatarRowWithInvite: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    marginTop: 8,
+  },
+  inviteChip: {
+    paddingHorizontal: 12,
+    paddingVertical: 6,
+    borderRadius: 20,
+    borderWidth: 1,
+  },
   avatarStack: {
     flexDirection: 'row',
     alignItems: 'center',
-    marginTop: 8,
   },
   avatarWrapper: {
     borderRadius: 20,
@@ -507,13 +649,62 @@ const styles = StyleSheet.create({
     paddingHorizontal: 16,
     borderRadius: 14,
     borderWidth: 1,
-    borderColor: '#F1F5F9',
-    backgroundColor: '#FFFFFF',
     marginBottom: 8,
     gap: 12,
   },
   memberBalanceInfo: {
     flex: 1,
     gap: 2,
+  },
+  modalOverlay: {
+    flex: 1,
+    justifyContent: 'flex-end',
+  },
+  modalContent: {
+    borderTopLeftRadius: 24,
+    borderTopRightRadius: 24,
+    padding: 24,
+    gap: 16,
+    maxWidth: 440,
+    width: '100%',
+    alignSelf: 'center',
+  },
+  modalHeaderRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+  },
+  closeBtn: {
+    padding: 4,
+  },
+  inviteDetailsCard: {
+    gap: 14,
+    marginTop: 4,
+  },
+  codeBox: {
+    alignItems: 'center',
+    padding: 20,
+    borderRadius: 16,
+    gap: 6,
+  },
+  modalActionButtons: {
+    flexDirection: 'row',
+    gap: 12,
+    marginTop: 4,
+  },
+  copyCodeOption: {
+    alignItems: 'center',
+    paddingVertical: 6,
+  },
+  noInviteState: {
+    alignItems: 'center',
+    padding: 20,
+    gap: 8,
+  },
+  revokeSection: {
+    borderTopWidth: 1,
+    borderTopColor: '#F1F5F9',
+    paddingTop: 14,
+    marginTop: 4,
   },
 });
