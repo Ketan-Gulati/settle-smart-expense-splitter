@@ -3,6 +3,7 @@ import helmet from 'helmet';
 import cors from 'cors';
 import { env } from './config/env';
 import { requestIdMiddleware } from './middleware/requestId.middleware';
+import { requestTimingMiddleware } from './middleware/timing.middleware';
 import { apiRateLimiter } from './middleware/rateLimit.middleware';
 import { errorHandler } from './middleware/errorHandler';
 
@@ -31,8 +32,9 @@ export const createApp = (): Express => {
     })
   );
 
-  // Request ID & Body Parsing
+  // Request ID, Timing & Body Parsing
   app.use(requestIdMiddleware);
+  app.use(requestTimingMiddleware);
   app.use(express.json({ limit: '1mb' }));
   app.use(express.urlencoded({ extended: true, limit: '1mb' }));
 

@@ -1,4 +1,17 @@
 export class Logger {
+  public static debug(message: string, meta?: Record<string, any>): void {
+    if (process.env.NODE_ENV === 'development') {
+      console.log(
+        JSON.stringify({
+          level: 'debug',
+          timestamp: new Date().toISOString(),
+          message,
+          ...this.sanitize(meta),
+        })
+      );
+    }
+  }
+
   public static info(message: string, meta?: Record<string, any>): void {
     console.log(
       JSON.stringify({

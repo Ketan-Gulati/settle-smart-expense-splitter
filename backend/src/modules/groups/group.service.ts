@@ -10,6 +10,8 @@ import {
 import { TokenSecurity } from '../../utils/security';
 import { BalanceService } from '../balances/balance.service';
 import { CreateGroupInput, UpdateGroupInput, AddMemberInput } from './group.schemas';
+import { CacheService } from '../../infrastructure/redis/redis.service';
+import { CacheKeys } from '../../infrastructure/redis/redis.keys';
 
 export interface GroupMemberResponse {
   id: string;
@@ -364,6 +366,10 @@ export class GroupService {
     const normalized = cleaned.toUpperCase();
     const hashed = TokenSecurity.hashToken(cleaned);
 
+    const cacheKey = CacheKeys.invitePreview(normalized);
+    const cached = await CacheService.get<InvitePreviewResponse>(cacheKey);
+    if (cached) return cached;
+
     const invite = await prisma.groupInvitation.findFirst({
       where: {
         OR: [{ inviteCode: normalized }, { tokenHash: hashed }],
@@ -393,11 +399,7 @@ export class GroupService {
       throw new ValidationError('This invitation has expired', 'INVITE_EXPIRED');
     }
 
-    if (invite.expiresAt && new Date() > invite.expiresAt) {
-      throw new ValidationError('Invitation code has expired', 'INVITE_EXPIRED');
-    }
-
-    return {
+    const preview: InvitePreviewResponse = {
       groupId: invite.group.id,
       groupName: invite.group.name,
       groupType: invite.group.groupType,
@@ -411,6 +413,9 @@ export class GroupService {
       })),
       inviteCode: invite.inviteCode,
     };
+
+    await CacheService.set(cacheKey, preview, 600); // 10 mins TTL
+    return preview;
   }
 
   public static async joinGroupViaInvite(codeOrToken: string, userId: string): Promise<GroupDetailsResponse> {

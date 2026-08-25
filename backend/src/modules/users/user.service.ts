@@ -1,6 +1,8 @@
 import { prisma } from '../../infrastructure/database/prisma';
 import { NotFoundError } from '../../errors/AppError';
 import { UpdateUserInput } from './user.schemas';
+import { CacheService } from '../../infrastructure/redis/redis.service';
+import { CacheKeys } from '../../infrastructure/redis/redis.keys';
 
 export interface PublicUserProfile {
   id: string;
@@ -53,6 +55,10 @@ export class UserService {
   }
 
   public static async getPublicProfile(userId: string): Promise<PublicUserProfile> {
+    const cacheKey = CacheKeys.userPublicProfile(userId);
+    const cached = await CacheService.get<PublicUserProfile>(cacheKey);
+    if (cached) return cached;
+
     const user = await prisma.user.findUnique({
       where: { id: userId },
       select: { id: true, name: true, avatarUrl: true, isActive: true },
@@ -62,11 +68,14 @@ export class UserService {
       throw new NotFoundError('User not found', 'NOT_FOUND');
     }
 
-    return {
+    const profile: PublicUserProfile = {
       id: user.id,
       name: user.name,
       avatarUrl: user.avatarUrl,
     };
+
+    await CacheService.set(cacheKey, profile, 600); // 10 mins TTL
+    return profile;
   }
 
   public static async searchUsers(query: string, currentUserId: string): Promise<PublicUserProfile[]> {
@@ -75,10 +84,16 @@ export class UserService {
       return [];
     }
 
+    const cacheKey = CacheKeys.userSearch(normalizedQuery);
+    const cached = await CacheService.get<PublicUserProfile[]>(cacheKey);
+    if (cached) {
+      // Filter out current user from cached response
+      return cached.filter((u) => u.id !== currentUserId);
+    }
+
     const users = await prisma.user.findMany({
       where: {
         isActive: true,
-        id: { not: currentUserId },
         OR: [
           { name: { contains: normalizedQuery, mode: 'insensitive' } },
           { email: { contains: normalizedQuery, mode: 'insensitive' } },
@@ -92,10 +107,13 @@ export class UserService {
       take: 10,
     });
 
-    return users.map((u) => ({
+    const results: PublicUserProfile[] = users.map((u) => ({
       id: u.id,
       name: u.name,
       avatarUrl: u.avatarUrl,
     }));
+
+    await CacheService.set(cacheKey, results, 60); // 60s TTL
+    return results.filter((u) => u.id !== currentUserId);
   }
 }

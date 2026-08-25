@@ -34,10 +34,13 @@ export class ActivityService {
 
     const skip = (query.page - 1) * query.limit;
 
-    // 2. Fetch expenses and settlements for these groups
+    // 2. Fetch recent expenses and settlements bounded by (skip + limit)
+    const fetchLimit = Math.min(Math.max((query.page) * query.limit, 50), 200);
+
     const [expenses, settlements] = await Promise.all([
       prisma.expense.findMany({
         where: { groupId: { in: groupIds }, deletedAt: null },
+        take: fetchLimit,
         include: {
           group: { select: { name: true } },
           payer: { select: { id: true, name: true } },
@@ -51,6 +54,7 @@ export class ActivityService {
       }),
       prisma.settlement.findMany({
         where: { groupId: { in: groupIds }, deletedAt: null },
+        take: fetchLimit,
         include: {
           group: { select: { name: true } },
           fromUser: { select: { id: true, name: true } },

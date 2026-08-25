@@ -36,12 +36,16 @@ export class DashboardService {
       },
     });
 
+    // 2. Derive net balance for each group concurrently in parallel (eliminating sequential query stalls)
+    const netMaps = await Promise.all(
+      memberships.map((m) => BalanceService.calculateGroupNetBalances(m.groupId))
+    );
+
     const groups: DashboardGroupCardDTO[] = [];
     let totalNetBalanceMinor = 0;
 
-    // 2. Derive net balance for each group dynamically using BalanceService (Zero divergence invariant)
-    for (const m of memberships) {
-      const netMap = await BalanceService.calculateGroupNetBalances(m.groupId);
+    memberships.forEach((m, i) => {
+      const netMap = netMaps[i] || new Map<string, bigint>();
       const userGroupBal = Number(netMap.get(userId) || 0n);
 
       totalNetBalanceMinor += userGroupBal;
@@ -54,7 +58,7 @@ export class DashboardService {
         unsettledExpenseCount: m.group._count.expenses,
         memberCount: m.group._count.members,
       });
-    }
+    });
 
     // 3. Fetch top 5 recent activity events
     const activityResult = await ActivityService.getUserActivityFeed(userId, { page: 1, limit: 5 });
