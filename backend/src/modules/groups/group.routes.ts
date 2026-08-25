@@ -26,6 +26,7 @@ router.patch('/:groupId', validateRequest({ body: updateGroupSchema }), GroupCon
 router.delete('/:groupId', GroupController.deleteGroup);
 
 // Membership routes
+router.get('/:groupId/members', GroupController.getGroupDetails);
 router.post('/:groupId/members', validateRequest({ body: addMemberSchema }), GroupController.addMember);
 router.delete('/:groupId/members/:userId', GroupController.removeMember);
 

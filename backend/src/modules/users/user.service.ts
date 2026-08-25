@@ -69,7 +69,7 @@ export class UserService {
     };
   }
 
-  public static async searchUsers(query: string, currentUserId: string): Promise<DetailedUserProfile[]> {
+  public static async searchUsers(query: string, currentUserId: string): Promise<PublicUserProfile[]> {
     const normalizedQuery = query.trim().toLowerCase();
     if (!normalizedQuery || normalizedQuery.length < 2) {
       return [];
@@ -87,9 +87,7 @@ export class UserService {
       select: {
         id: true,
         name: true,
-        email: true,
         avatarUrl: true,
-        createdAt: true,
       },
       take: 10,
     });
@@ -97,9 +95,7 @@ export class UserService {
     return users.map((u) => ({
       id: u.id,
       name: u.name,
-      email: u.email,
       avatarUrl: u.avatarUrl,
-      createdAt: u.createdAt.toISOString(),
     }));
   }
 }

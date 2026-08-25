@@ -11,9 +11,12 @@ describe('Production-Grade Authentication System Test Suite', () => {
   let resetRawToken: string;
   let initialRefreshToken: string;
   let rotatedRefreshToken: string;
-
-  const testEmail = `auth_test_${Date.now()}@settle.app`;
+  let testEmail: string;
   const testPassword = 'ProductionSecure2026!';
+
+  beforeAll(() => {
+    testEmail = `auth_test_${Date.now()}_${Math.random().toString(36).substring(7)}@settle.app`;
+  });
 
   afterAll(async () => {
     // Clean up test records
