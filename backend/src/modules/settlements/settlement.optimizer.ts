@@ -11,14 +11,18 @@ export interface OptimizedTransferPlan {
 
 export class SettlementOptimizer {
   /**
-   * Generates a deterministic, minimum-transfer debt simplification plan from member net balances.
+   * Generates a deterministic debt simplification plan from member net balances using a greedy matching algorithm.
    *
-   * Invariants guaranteed:
-   * 1. Sum(netBalances) must equal 0n (Zero-sum conservation).
-   * 2. Total money transferred equals total positive net balances.
-   * 3. Every debtor pays at most their absolute debt; creditors receive at most their credit.
-   * 4. Ties are broken deterministically by alphabetical userId ordering.
-   * 5. Resulting net positions after applying transfers equal exactly 0n for all members.
+   * Note on Algorithmic Properties:
+   * 1. Reduction Bound: Produces at most (N - 1) transfers where N is the number of members with non-zero balances.
+   * 2. Heuristic vs NP-Hard Optimal: The minimum cash-flow problem is NP-hard (equivalent to subset sum).
+   *    This greedy algorithm provides an efficient O(N log N) reduction with deterministic output, but does not
+   *    guarantee the absolute theoretical minimum number of transactions across all arbitrary cyclic combinations.
+   * 3. Financial Invariant Guarantees:
+   *    - Conservation: Sum(transfers) equals total positive net balances.
+   *    - Zero Net Deviation: Resulting net positions after applying transfers equal exactly 0n for all members.
+   *    - Debtor/Creditor Bounds: Debtors only send money (<= |debt|); creditors only receive (<= credit).
+   *    - Determinism: Tied amounts are sorted deterministically by alphabetical userId.
    */
   public static optimizeTransfers(balances: MemberNetBalance[]): OptimizedTransferPlan[] {
     let balanceSum = 0n;

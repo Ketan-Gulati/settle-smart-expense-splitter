@@ -11,9 +11,10 @@ interface CachedResponse {
 
 // In-memory idempotency store with TTL (1 hour)
 const idempotencyStore = new Map<string, CachedResponse>();
+const inFlightLocks = new Map<string, Promise<any>>();
 const TTL_MS = 60 * 60 * 1000;
 
-export const idempotencyMiddleware = (req: Request, res: Response, next: NextFunction): void => {
+export const idempotencyMiddleware = async (req: Request, res: Response, next: NextFunction): Promise<void> => {
   const idempotencyKey = req.header('Idempotency-Key');
 
   // If no idempotency key is provided, proceed normally
@@ -29,6 +30,15 @@ export const idempotencyMiddleware = (req: Request, res: Response, next: NextFun
     userId: req.user?.id || 'anonymous',
   });
   const currentHash = crypto.createHash('sha256').update(payloadToHash).digest('hex');
+
+  // Wait if another identical in-flight request is already processing
+  if (inFlightLocks.has(idempotencyKey)) {
+    try {
+      await inFlightLocks.get(idempotencyKey);
+    } catch {
+      // Lock completed or failed, proceed to check store
+    }
+  }
 
   // Check existing entry
   const cached = idempotencyStore.get(idempotencyKey);
@@ -50,6 +60,12 @@ export const idempotencyMiddleware = (req: Request, res: Response, next: NextFun
     }
   }
 
+  let resolveLock: () => void;
+  const lockPromise = new Promise<void>((resolve) => {
+    resolveLock = resolve;
+  });
+  inFlightLocks.set(idempotencyKey, lockPromise);
+
   // Intercept json response to cache it
   const originalJson = res.json.bind(res);
   res.json = (body: any): Response => {
@@ -61,6 +77,8 @@ export const idempotencyMiddleware = (req: Request, res: Response, next: NextFun
         timestamp: Date.now(),
       });
     }
+    inFlightLocks.delete(idempotencyKey);
+    resolveLock();
     return originalJson(body);
   };
 
