@@ -30,56 +30,103 @@ export const SettleWorldScene: React.FC<SettleWorldSceneProps> = ({
   const sceneRef = useRef<THREE.Scene | null>(null);
   const rendererRef = useRef<THREE.WebGLRenderer | null>(null);
   const cameraRef = useRef<THREE.PerspectiveCamera | null>(null);
-  const modulesRef = useRef<THREE.Group[]>([]);
-  const centralNodeRef = useRef<THREE.Group | null>(null);
-  const valueOrbRef = useRef<THREE.Mesh | null>(null);
-  const valueMatRef = useRef<THREE.MeshPhysicalMaterial | null>(null);
+  const participantsRef = useRef<THREE.Group[]>([]);
+  const centralStateRef = useRef<THREE.Group | null>(null);
+  const valueStreamsRef = useRef<THREE.Mesh[]>([]);
+  const settlementStreamsRef = useRef<THREE.Mesh[]>([]);
+  const particlesPoolRef = useRef<THREE.Mesh[]>([]);
   const timelineRef = useRef<gsap.core.Timeline | null>(null);
   const mousePos = useRef<THREE.Vector2>(new THREE.Vector2(0, 0));
   const reqIdRef = useRef<number | null>(null);
 
+  // Helper to create micro label badge texture (e.g. Ketan, Rohit, Raj)
+  const createParticipantLabelTexture = (name: string, initial: string) => {
+    if (typeof document === 'undefined') return null;
+    const canvas = document.createElement('canvas');
+    canvas.width = 256;
+    canvas.height = 128;
+    const ctx = canvas.getContext('2d');
+    if (!ctx) return null;
+
+    ctx.clearRect(0, 0, 256, 128);
+
+    // Pill background
+    ctx.fillStyle = 'rgba(255, 255, 255, 0.95)';
+    ctx.beginPath();
+    ctx.roundRect(16, 20, 224, 88, 44);
+    ctx.fill();
+
+    ctx.strokeStyle = '#E2E8F0';
+    ctx.lineWidth = 4;
+    ctx.stroke();
+
+    // Initial avatar dot
+    ctx.fillStyle = '#0284C7';
+    ctx.beginPath();
+    ctx.arc(64, 64, 26, 0, Math.PI * 2);
+    ctx.fill();
+
+    ctx.fillStyle = '#FFFFFF';
+    ctx.font = '700 28px -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif';
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    ctx.fillText(initial, 64, 66);
+
+    // Name text
+    ctx.fillStyle = '#0F172A';
+    ctx.font = '600 32px -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif';
+    ctx.textAlign = 'left';
+    ctx.fillText(name, 104, 66);
+
+    const texture = new THREE.CanvasTexture(canvas);
+    texture.needsUpdate = true;
+    return texture;
+  };
+
   // Form interaction responsiveness
   useEffect(() => {
-    if (!modulesRef.current.length || !centralNodeRef.current) return;
+    if (!participantsRef.current.length || !centralStateRef.current) return;
 
     if (interactionState === 'email_focused') {
-      modulesRef.current.forEach((mod, idx) => {
-        gsap.to(mod.position, {
-          y: idx === 0 ? 0.35 : 0.15,
-          duration: 0.6,
+      participantsRef.current.forEach((p, idx) => {
+        gsap.to(p.position, {
+          y: idx === 0 ? 0.38 : 0.18,
+          duration: 0.5,
           ease: 'power2.out',
         });
       });
-      if (centralNodeRef.current) {
-        gsap.to(centralNodeRef.current.rotation, {
-          z: 0.08,
-          x: -0.05,
+      if (centralStateRef.current) {
+        gsap.to(centralStateRef.current.rotation, {
+          y: 0.4,
           duration: 0.5,
           ease: 'power2.out',
         });
       }
     } else if (interactionState === 'password_focused') {
-      modulesRef.current.forEach((mod) => {
-        gsap.to(mod.position, { y: 0.2, duration: 0.5, ease: 'power2.out' });
+      participantsRef.current.forEach((p) => {
+        gsap.to(p.position, { y: 0.2, duration: 0.5, ease: 'power2.out' });
       });
-      if (centralNodeRef.current) {
-        gsap.to(centralNodeRef.current.rotation, {
-          z: 0,
-          x: 0,
+      if (centralStateRef.current) {
+        gsap.to(centralStateRef.current.rotation, {
+          y: 0,
           duration: 0.5,
           ease: 'power2.out',
         });
       }
     } else if (interactionState === 'submitting') {
-      // Rapid convergence to unified equilibrium
-      modulesRef.current.forEach((mod) => {
-        gsap.to(mod.position, { y: 0.2, duration: 0.4, ease: 'power3.out' });
+      // Direct convergence to complete clean settlement
+      settlementStreamsRef.current.forEach((stream) => {
+        gsap.to((stream.material as THREE.MeshPhysicalMaterial), {
+          opacity: 0.95,
+          emissiveIntensity: 1.2,
+          duration: 0.3,
+        });
       });
-      if (centralNodeRef.current) {
-        gsap.to(centralNodeRef.current.scale, {
-          x: 1.1,
-          y: 1.1,
-          z: 1.1,
+      if (centralStateRef.current) {
+        gsap.to(centralStateRef.current.scale, {
+          x: 1.15,
+          y: 1.15,
+          z: 1.15,
           duration: 0.3,
           yoyo: true,
           repeat: 1,
@@ -93,16 +140,16 @@ export const SettleWorldScene: React.FC<SettleWorldSceneProps> = ({
 
     const container = containerRef.current;
     const width = container.clientWidth || (isDesktop ? 540 : isTablet ? 480 : windowWidth);
-    const height = container.clientHeight || (isDesktop ? 280 : isTablet ? 260 : 230);
+    const height = container.clientHeight || (isDesktop ? 290 : isTablet ? 260 : 230);
 
     // 1. Scene
     const scene = new THREE.Scene();
     sceneRef.current = scene;
 
-    // 2. Camera: Sophisticated 3/4 luxury product studio angle
+    // 2. Camera: Natural elevated 3/4 viewpoint (Looking at floating financial ecosystem)
     const camera = new THREE.PerspectiveCamera(28, width / height, 0.1, 100);
-    camera.position.set(0, 2.4, 4.8);
-    camera.lookAt(0, 0.2, 0);
+    camera.position.set(0, 2.6, 5.0);
+    camera.lookAt(0, 0.25, 0);
     cameraRef.current = camera;
 
     // 3. WebGL Renderer with High Precision & Studio ACES Filmic Tone Mapping
@@ -123,17 +170,16 @@ export const SettleWorldScene: React.FC<SettleWorldSceneProps> = ({
     container.appendChild(renderer.domElement);
 
     // -------------------------------------------------------------
-    // 4. BRIGHT APPLE STUDIO LIGHTING
-    // Soft diffuse daylight, overhead soft key, studio rim, warm floor bounce
+    // 4. HIGH-END STUDIO LIGHTING (Bright, Soft Shadows, Clean Reflections)
     // -------------------------------------------------------------
     const ambientLight = new THREE.AmbientLight(0xFFFFFF, 2.8);
     scene.add(ambientLight);
 
-    // Main Studio Overhead Soft Spot Key
-    const keySpot = new THREE.SpotLight(0xFFFFFF, 3.4);
-    keySpot.position.set(2.0, 6.0, 3.5);
-    keySpot.angle = Math.PI / 4.5;
-    keySpot.penumbra = 0.8;
+    // Overhead Key Soft Spot Light
+    const keySpot = new THREE.SpotLight(0xFFFFFF, 3.6);
+    keySpot.position.set(2.0, 6.5, 4.0);
+    keySpot.angle = Math.PI / 4.2;
+    keySpot.penumbra = 0.85;
     keySpot.castShadow = true;
     keySpot.shadow.mapSize.width = 1024;
     keySpot.shadow.mapSize.height = 1024;
@@ -142,24 +188,19 @@ export const SettleWorldScene: React.FC<SettleWorldSceneProps> = ({
 
     // Soft Daylight Fill Light
     const fillLight = new THREE.DirectionalLight(0xF8FAFC, 1.6);
-    fillLight.position.set(-3.0, 3.5, 2.0);
+    fillLight.position.set(-3.5, 4.0, 2.0);
     scene.add(fillLight);
 
     // Subtle Satin Rim Highlight
     const rimLight = new THREE.DirectionalLight(0xE2E8F0, 1.2);
-    rimLight.position.set(0, 2.0, -3.5);
+    rimLight.position.set(0, 2.5, -4.0);
     scene.add(rimLight);
-
-    // Subtle warm ground bounce
-    const bounceLight = new THREE.PointLight(0xF8FAFC, 1.0, 6);
-    bounceLight.position.set(0, -0.5, 1.5);
-    scene.add(bounceLight);
 
     const worldGroup = new THREE.Group();
     scene.add(worldGroup);
 
     // -------------------------------------------------------------
-    // 5. SHARED LUXURY MATERIALS (Frosted Glass, Ceramic, Satin Aluminum)
+    // 5. LUXURY MATERIALS
     // -------------------------------------------------------------
     const frostedGlassMat = new THREE.MeshPhysicalMaterial({
       color: 0xFFFFFF,
@@ -173,11 +214,11 @@ export const SettleWorldScene: React.FC<SettleWorldSceneProps> = ({
       clearcoatRoughness: 0.08,
     });
 
-    const satinAluminumMat = new THREE.MeshPhysicalMaterial({
+    const satinMetalMat = new THREE.MeshPhysicalMaterial({
       color: 0xCBD5E1,
-      roughness: 0.28,
+      roughness: 0.26,
       metalness: 0.85,
-      clearcoat: 0.4,
+      clearcoat: 0.5,
     });
 
     const ceramicMat = new THREE.MeshPhysicalMaterial({
@@ -188,182 +229,278 @@ export const SettleWorldScene: React.FC<SettleWorldSceneProps> = ({
     });
 
     // -------------------------------------------------------------
-    // 6. THREE VALUE MODULES (Suspended Precision Ceramic/Glass Nodes)
-    // Top Module (A), Bottom-Left Module (B), Bottom-Right Module (C)
+    // 6. THREE ABSTRACT PARTICIPANTS (Ketan, Rohit, Raj)
+    // Floating naturally in open space (Zero podiums, Zero platforms)
     // -------------------------------------------------------------
-    const modulesGroup = new THREE.Group();
-    worldGroup.add(modulesGroup);
-    modulesRef.current = [];
+    const participantsGroup = new THREE.Group();
+    worldGroup.add(participantsGroup);
+    participantsRef.current = [];
 
-    const modulesData = [
-      { id: 'modA', x: 0, y: 0.65, z: -0.65 },      // Top
-      { id: 'modB', x: -0.95, y: 0.05, z: 0.45 },   // Bottom-Left
-      { id: 'modC', x: 0.95, y: 0.05, z: 0.45 },    // Bottom-Right
+    const participantsData = [
+      { name: 'Ketan', initial: 'K', x: 0, y: 0.72, z: -0.75, accent: 0x0284C7 },      // Top (Payer / Host)
+      { name: 'Rohit', initial: 'R', x: -1.05, y: 0.12, z: 0.45, accent: 0x0D9488 },   // Bottom-Left
+      { name: 'Raj', initial: 'R', x: 1.05, y: 0.12, z: 0.45, accent: 0x6366F1 },     // Bottom-Right
     ];
 
-    const moduleObjects: THREE.Group[] = [];
+    const participantObjects: THREE.Group[] = [];
 
-    modulesData.forEach((data) => {
-      const mod = new THREE.Group();
-      mod.position.set(data.x, data.y, data.z);
+    participantsData.forEach((pd) => {
+      const pGroup = new THREE.Group();
+      pGroup.position.set(pd.x, pd.y, pd.z);
 
-      // 1. Satin Aluminum Base Disc
-      const baseGeo = new THREE.CylinderGeometry(0.24, 0.27, 0.05, 36);
-      const baseMesh = new THREE.Mesh(baseGeo, satinAluminumMat);
-      baseMesh.castShadow = true;
-      baseMesh.receiveShadow = true;
-      mod.add(baseMesh);
+      // Elegant Dual-Form Abstract Silhouette:
+      // Lower Sculptural Ceramic/Metal Torso + Floating Frosted Glass Head Sphere
+      const lowerBaseGeo = new THREE.CylinderGeometry(0.18, 0.22, 0.16, 32);
+      const lowerBase = new THREE.Mesh(lowerBaseGeo, satinMetalMat);
+      lowerBase.position.y = 0.08;
+      lowerBase.castShadow = true;
+      pGroup.add(lowerBase);
 
-      // 2. Ceramic / Frosted Acrylic Body
-      const bodyGeo = new THREE.CylinderGeometry(0.2, 0.2, 0.22, 36);
-      const bodyMesh = new THREE.Mesh(bodyGeo, ceramicMat);
-      bodyMesh.position.y = 0.12;
-      bodyMesh.castShadow = true;
-      mod.add(bodyMesh);
+      const middleBodyGeo = new THREE.CylinderGeometry(0.14, 0.18, 0.24, 32);
+      const middleBody = new THREE.Mesh(middleBodyGeo, ceramicMat);
+      middleBody.position.y = 0.26;
+      middleBody.castShadow = true;
+      pGroup.add(middleBody);
 
-      // 3. Precision Polished Frosted Glass Cap
-      const capGeo = new THREE.SphereGeometry(0.2, 32, 16, 0, Math.PI * 2, 0, Math.PI / 2);
-      const capMesh = new THREE.Mesh(capGeo, frostedGlassMat);
-      capMesh.position.y = 0.23;
-      capMesh.castShadow = true;
-      mod.add(capMesh);
+      // Accent Identification Collar
+      const collarGeo = new THREE.TorusGeometry(0.145, 0.012, 16, 32);
+      const collarMat = new THREE.MeshStandardMaterial({
+        color: pd.accent,
+        roughness: 0.2,
+        metalness: 0.6,
+      });
+      const collar = new THREE.Mesh(collarGeo, collarMat);
+      collar.rotation.x = Math.PI / 2;
+      collar.position.y = 0.38;
+      pGroup.add(collar);
 
-      modulesGroup.add(mod);
-      moduleObjects.push(mod);
-      modulesRef.current.push(mod);
+      // Floating Polished Frosted Glass Head Sphere
+      const headGeo = new THREE.SphereGeometry(0.15, 32, 24);
+      const head = new THREE.Mesh(headGeo, frostedGlassMat);
+      head.position.y = 0.54;
+      head.castShadow = true;
+      pGroup.add(head);
+
+      // Tiny Elegant Participant Name Badge
+      const badgeGeo = new THREE.PlaneGeometry(0.36, 0.18);
+      const badgeTex = createParticipantLabelTexture(pd.name, pd.initial);
+      const badgeMat = new THREE.MeshBasicMaterial({
+        map: badgeTex,
+        transparent: true,
+        opacity: 0.95,
+      });
+      const badge = new THREE.Mesh(badgeGeo, badgeMat);
+      badge.position.set(0, 0.82, 0.05);
+      pGroup.add(badge);
+
+      participantsGroup.add(pGroup);
+      participantObjects.push(pGroup);
+      participantsRef.current.push(pGroup);
     });
 
     // -------------------------------------------------------------
-    // 7. CENTRAL CONNECTING STRUCTURE & EQUILIBRIUM PRISM
-    // Minimal Satin Struts + Suspended Frosted Equilibrium Core
+    // 7. CENTRAL SHARED FINANCIAL STATE OBJECT
+    // Translucent geometric crystalline core suspended in the middle
     // -------------------------------------------------------------
-    const centralGroup = new THREE.Group();
-    centralGroup.position.set(0, 0.25, 0.1);
-    worldGroup.add(centralGroup);
-    centralNodeRef.current = centralGroup;
+    const centerGroup = new THREE.Group();
+    centerGroup.position.set(0, 0.38, 0.05);
+    worldGroup.add(centerGroup);
+    centralStateRef.current = centerGroup;
 
-    // Elegant Slender Satin Struts connecting to modules
-    const strutMat = new THREE.MeshPhysicalMaterial({
-      color: 0xE2E8F0,
-      roughness: 0.35,
-      metalness: 0.6,
-    });
+    const coreGeo = new THREE.OctahedronGeometry(0.24, 1);
+    const coreMesh = new THREE.Mesh(coreGeo, frostedGlassMat);
+    coreMesh.castShadow = true;
+    centerGroup.add(coreMesh);
 
-    const createStrut = (p1: THREE.Vector3, p2: THREE.Vector3) => {
-      const dir = new THREE.Vector3().subVectors(p2, p1);
-      const len = dir.length();
-      const strutGeo = new THREE.CylinderGeometry(0.012, 0.012, len, 16);
-      const strut = new THREE.Mesh(strutGeo, strutMat);
-      strut.position.copy(p1).addScaledVector(dir, 0.5);
-      strut.quaternion.setFromUnitVectors(new THREE.Vector3(0, 1, 0), dir.normalize());
-      return strut;
-    };
-
-    const cPos = new THREE.Vector3(0, 0.25, 0.1);
-    const strut1 = createStrut(cPos, new THREE.Vector3(modulesData[0]!.x, modulesData[0]!.y + 0.1, modulesData[0]!.z));
-    const strut2 = createStrut(cPos, new THREE.Vector3(modulesData[1]!.x, modulesData[1]!.y + 0.1, modulesData[1]!.z));
-    const strut3 = createStrut(cPos, new THREE.Vector3(modulesData[2]!.x, modulesData[2]!.y + 0.1, modulesData[2]!.z));
-    worldGroup.add(strut1, strut2, strut3);
-
-    // Central Frosted Glass Rhombic Balance Prism
-    const corePrismGeo = new THREE.OctahedronGeometry(0.18, 1);
-    const corePrism = new THREE.Mesh(corePrismGeo, frostedGlassMat);
-    corePrism.castShadow = true;
-    centralGroup.add(corePrism);
-
-    // Minimal Satin Inset Ring on Central Core
-    const ringGeo = new THREE.TorusGeometry(0.24, 0.009, 16, 48);
-    const ring = new THREE.Mesh(ringGeo, satinAluminumMat);
-    ring.rotation.x = Math.PI / 4;
-    centralGroup.add(ring);
-
-    // -------------------------------------------------------------
-    // 8. LUMINOUS VALUE OBJECT & PHYSICAL CAUSE-AND-EFFECT STORY LOOP
-    // 0–2s: Imperfect Imbalance
-    // 2–4s: Luminous Settle Cyan Value Element moves from Module B -> A
-    // 4–6s: Modules physically respond and elevate
-    // 6–8s: System smoothly settles into perfect equilibrium
-    // 8–9s: Calm pause
-    // 9–12s: Second cycle (Module C -> A)
-    // -------------------------------------------------------------
-    const valGeo = new THREE.SphereGeometry(0.065, 24, 24);
-    const valMat = new THREE.MeshPhysicalMaterial({
+    // Subtle Internal Luminous Nucleus (Reacts when money moves)
+    const nucleusGeo = new THREE.SphereGeometry(0.08, 24, 24);
+    const nucleusMat = new THREE.MeshPhysicalMaterial({
       color: 0x0284C7,
       emissive: 0x0284C7,
-      emissiveIntensity: 0.9,
-      roughness: 0.1,
-      metalness: 0.3,
+      emissiveIntensity: 0.4,
+      roughness: 0.15,
+      metalness: 0.4,
       clearcoat: 1.0,
     });
-    valueMatRef.current = valMat;
+    const nucleus = new THREE.Mesh(nucleusGeo, nucleusMat);
+    centerGroup.add(nucleus);
 
-    const valueOrb = new THREE.Mesh(valGeo, valMat);
-    valueOrb.visible = false;
-    valueOrb.castShadow = true;
-    worldGroup.add(valueOrb);
-    valueOrbRef.current = valueOrb;
+    // -------------------------------------------------------------
+    // 8. ELEGANT VALUE STREAMS (Expense Creation & Web of Obligations)
+    // Smooth translucent curved bezier tubes representing money flow
+    // -------------------------------------------------------------
+    const streamsGroup = new THREE.Group();
+    worldGroup.add(streamsGroup);
+    valueStreamsRef.current = [];
+    settlementStreamsRef.current = [];
 
-    const modA = moduleObjects[0]!;
-    const modB = moduleObjects[1]!;
-    const modC = moduleObjects[2]!;
+    const createCurvedStream = (p1: THREE.Vector3, p2: THREE.Vector3, color: number = 0x0284C7, arcHeight: number = 0.25) => {
+      const mid = new THREE.Vector3().addVectors(p1, p2).multiplyScalar(0.5);
+      mid.y += arcHeight;
+      const curve = new THREE.QuadraticBezierCurve3(p1, mid, p2);
+      const tubeGeo = new THREE.TubeGeometry(curve, 32, 0.016, 8, false);
+      const tubeMat = new THREE.MeshPhysicalMaterial({
+        color,
+        emissive: color,
+        emissiveIntensity: 0.2,
+        roughness: 0.15,
+        transmission: 0.6,
+        transparent: true,
+        opacity: 0,
+      });
+      const tubeMesh = new THREE.Mesh(tubeGeo, tubeMat);
+      streamsGroup.add(tubeMesh);
+      return tubeMesh;
+    };
+
+    const posK = new THREE.Vector3(participantsData[0]!.x, participantsData[0]!.y + 0.35, participantsData[0]!.z);
+    const posR1 = new THREE.Vector3(participantsData[1]!.x, participantsData[1]!.y + 0.35, participantsData[1]!.z);
+    const posR2 = new THREE.Vector3(participantsData[2]!.x, participantsData[2]!.y + 0.35, participantsData[2]!.z);
+    const posCore = new THREE.Vector3(0, 0.38, 0.05);
+
+    // Initial Shared Expense Streams (Ketan pays -> Shared State -> Rohit / Raj)
+    const streamKetanToCore = createCurvedStream(posK, posCore, 0x0284C7, 0.15);
+    const streamCoreToRohit = createCurvedStream(posCore, posR1, 0x0D9488, 0.15);
+    const streamCoreToRaj = createCurvedStream(posCore, posR2, 0x6366F1, 0.15);
+
+    // Complexity Streams (Secondary transactions creating an intertwined web)
+    const streamRajToRohit = createCurvedStream(posR2, posR1, 0x0EA5E9, 0.22);
+    const streamRohitToKetan = createCurvedStream(posR1, posK, 0x0D9488, 0.25);
+
+    valueStreamsRef.current = [streamKetanToCore, streamCoreToRohit, streamCoreToRaj, streamRajToRohit, streamRohitToKetan];
+
+    // Simplified Final Settlement Streams (Settle Optimizer: Rohit -> Ketan & Raj -> Ketan)
+    const settleStream1 = createCurvedStream(posR1, posK, 0x0284C7, 0.28);
+    const settleStream2 = createCurvedStream(posR2, posK, 0x0284C7, 0.28);
+    settlementStreamsRef.current = [settleStream1, settleStream2];
+
+    // Floating Luminous Value Particles along flows
+    const pGeo = new THREE.SphereGeometry(0.042, 16, 16);
+    const pMat = new THREE.MeshStandardMaterial({
+      color: 0x0284C7,
+      emissive: 0x0284C7,
+      emissiveIntensity: 2.2,
+    });
+
+    const particle1 = new THREE.Mesh(pGeo, pMat);
+    const particle2 = new THREE.Mesh(pGeo, pMat);
+    particle1.visible = false;
+    particle2.visible = false;
+    worldGroup.add(particle1, particle2);
+    particlesPoolRef.current = [particle1, particle2];
+
+    // -------------------------------------------------------------
+    // 9. COMPLETE CHOREOGRAPHED NARRATIVE LOOP (GSAP)
+    // Story: Group -> Shared Expense -> Web of Complexity -> Settle Optimization -> Calm Settlement -> Seamless Loop
+    // -------------------------------------------------------------
+    const pKetan = participantObjects[0]!;
+    const pRohit = participantObjects[1]!;
+    const pRaj = participantObjects[2]!;
 
     const tl = gsap.timeline({ repeat: -1 });
     timelineRef.current = tl;
 
-    // === 0s - 2s: PHASE 1 (IMPERFECT INITIAL IMBALANCE) ===
-    tl.to(modA.position, { y: 0.78, duration: 1.2, ease: 'power2.inOut' }, 0);
-    tl.to(modB.position, { y: -0.04, duration: 1.2, ease: 'power2.inOut' }, 0);
-    tl.to(modC.position, { y: 0.05, duration: 1.2, ease: 'power2.inOut' }, 0);
-    tl.to(centralGroup.rotation, { z: -0.1, x: 0.06, duration: 1.2, ease: 'power2.inOut' }, 0);
+    // === PHASE 1: GROUP (0s - 1.5s) — Calm floating equilibrium ===
+    tl.to(pKetan.position, { y: 0.72, duration: 1.0, ease: 'power2.inOut' }, 0);
+    tl.to(pRohit.position, { y: 0.12, duration: 1.0, ease: 'power2.inOut' }, 0);
+    tl.to(pRaj.position, { y: 0.12, duration: 1.0, ease: 'power2.inOut' }, 0);
 
-    // === 2s - 4s: PHASE 2 (LUMINOUS VALUE FLOWS B -> A) ===
+    // === PHASE 2: SHARED EXPENSE (1.5s - 4.0s) — Ketan pays, value distributes ===
     tl.call(() => {
-      valueOrb.visible = true;
-    }, [], 2.0);
+      particle1.visible = true;
+    }, [], 1.5);
 
+    // Particle flows Ketan -> Core
     tl.fromTo(
-      valueOrb.position,
-      { x: modulesData[1]!.x, y: 0.35, z: modulesData[1]!.z },
-      { x: modulesData[0]!.x, y: 0.95, z: modulesData[0]!.z, duration: 2.0, ease: 'power2.inOut' },
-      2.0
+      particle1.position,
+      { x: posK.x, y: posK.y, z: posK.z },
+      { x: posCore.x, y: posCore.y, z: posCore.z, duration: 1.2, ease: 'power2.inOut' },
+      1.5
     );
 
-    // === 4s - 6s: PHASE 3 (PHYSICAL RESPONSE & HARMONIZATION) ===
-    // As value arrives, source module rises from lightened debt, core self-levels
-    tl.to(modB.position, { y: 0.05, duration: 1.8, ease: 'power2.out' }, 3.5);
-    tl.to(modA.position, { y: 0.65, duration: 1.8, ease: 'power2.out' }, 3.5);
-    tl.to(centralGroup.rotation, { z: 0, x: 0, duration: 1.8, ease: 'back.out(1.4)' }, 3.8);
+    // Streams light up
+    tl.to((streamKetanToCore.material as THREE.MeshPhysicalMaterial), { opacity: 0.85, emissiveIntensity: 0.8, duration: 0.6 }, 1.8);
+    tl.to(nucleusMat, { emissiveIntensity: 1.2, duration: 0.4 }, 2.5);
+    tl.to((streamCoreToRohit.material as THREE.MeshPhysicalMaterial), { opacity: 0.85, emissiveIntensity: 0.6, duration: 0.6 }, 2.7);
+    tl.to((streamCoreToRaj.material as THREE.MeshPhysicalMaterial), { opacity: 0.85, emissiveIntensity: 0.6, duration: 0.6 }, 2.7);
 
-    // === 6s - 8s: PHASE 4 (PERFECT EQUILIBRIUM) ===
-    tl.to(valMat, { emissiveIntensity: 0.1, duration: 0.8, ease: 'power2.out' }, 6.0);
-    tl.call(() => {
-      valueOrb.visible = false;
-      valMat.emissiveIntensity = 0.9;
-    }, [], 7.8);
-
-    // === 8s - 9s: PHASE 5 (CALM BREATH) ===
-    tl.to(corePrism.rotation, { y: '+=0.8', duration: 1.0, ease: 'power1.inOut' }, 8.0);
-
-    // === 9s - 12s: PHASE 6 (CYCLE 2: VALUE FLOWS C -> A & SETTLES) ===
-    tl.to(modC.position, { y: -0.04, duration: 0.8, ease: 'power2.inOut' }, 9.0);
-    tl.call(() => {
-      valueOrb.visible = true;
-    }, [], 9.4);
+    // Particle splits toward Rohit & Raj
     tl.fromTo(
-      valueOrb.position,
-      { x: modulesData[2]!.x, y: 0.35, z: modulesData[2]!.z },
-      { x: modulesData[0]!.x, y: 0.95, z: modulesData[0]!.z, duration: 1.8, ease: 'power2.inOut' },
-      9.4
+      particle1.position,
+      { x: posCore.x, y: posCore.y, z: posCore.z },
+      { x: posR1.x, y: posR1.y, z: posR1.z, duration: 1.1, ease: 'power2.out' },
+      2.7
     );
-    tl.to(modC.position, { y: 0.05, duration: 1.4, ease: 'back.out(1.5)' }, 10.4);
+
+    // === PHASE 3: COMPLEXITY (4.0s - 6.5s) — More transactions occur, web forms ===
+    tl.to((streamRajToRohit.material as THREE.MeshPhysicalMaterial), { opacity: 0.75, emissiveIntensity: 0.5, duration: 0.8 }, 4.0);
+    tl.to((streamRohitToKetan.material as THREE.MeshPhysicalMaterial), { opacity: 0.75, emissiveIntensity: 0.5, duration: 0.8 }, 4.4);
+
+    // Participants and core slightly displace to reflect pending obligations
+    tl.to(pKetan.position, { y: 0.82, duration: 1.0, ease: 'power2.inOut' }, 4.5);
+    tl.to(pRohit.position, { y: 0.04, duration: 1.0, ease: 'power2.inOut' }, 4.5);
+    tl.to(pRaj.position, { y: 0.06, duration: 1.0, ease: 'power2.inOut' }, 4.5);
+    tl.to(centerGroup.rotation, { y: 0.35, duration: 1.0, ease: 'power2.inOut' }, 4.5);
+
+    // === PHASE 4: THE SETTLEMENT MOMENT (6.5s - 9.0s) — Complexity collapses into simple payment flows ===
+    // Retract complex overlapping web
+    tl.to(
+      valueStreamsRef.current.map((s) => s.material as THREE.MeshPhysicalMaterial),
+      { opacity: 0, emissiveIntensity: 0, duration: 0.8, ease: 'power2.inOut' },
+      6.5
+    );
+
+    // Settle Optimizer: Activate two direct, clean payment streams (Rohit -> Ketan, Raj -> Ketan)
+    tl.to(
+      settlementStreamsRef.current.map((s) => s.material as THREE.MeshPhysicalMaterial),
+      { opacity: 0.95, emissiveIntensity: 1.0, duration: 0.8, ease: 'power2.out' },
+      7.2
+    );
+
+    // Luminous value glides cleanly from Rohit & Raj directly into Ketan
     tl.call(() => {
-      valueOrb.visible = false;
-    }, [], 11.8);
+      particle1.visible = true;
+      particle2.visible = true;
+    }, [], 7.3);
+
+    tl.fromTo(
+      particle1.position,
+      { x: posR1.x, y: posR1.y, z: posR1.z },
+      { x: posK.x, y: posK.y, z: posK.z, duration: 1.4, ease: 'power2.inOut' },
+      7.3
+    );
+    tl.fromTo(
+      particle2.position,
+      { x: posR2.x, y: posR2.y, z: posR2.z },
+      { x: posK.x, y: posK.y, z: posK.z, duration: 1.4, ease: 'power2.inOut' },
+      7.3
+    );
+
+    // === PHASE 5: FINAL CALM SETTLED STATE (9.0s - 12.0s) — Equilibrium exhale ===
+    // All participants smoothly settle into balanced elevation
+    tl.to(pKetan.position, { y: 0.72, duration: 1.2, ease: 'back.out(1.5)' }, 8.8);
+    tl.to(pRohit.position, { y: 0.12, duration: 1.2, ease: 'back.out(1.5)' }, 8.8);
+    tl.to(pRaj.position, { y: 0.12, duration: 1.2, ease: 'back.out(1.5)' }, 8.8);
+
+    tl.to(centerGroup.rotation, { y: 0, duration: 1.2, ease: 'back.out(1.4)' }, 8.8);
+    tl.to(nucleusMat, { emissiveIntensity: 0.4, duration: 1.0 }, 9.2);
+
+    tl.call(() => {
+      particle1.visible = false;
+      particle2.visible = false;
+    }, [], 9.2);
+
+    // Gentle fade of settlement streams leaving serene floating group
+    tl.to(
+      settlementStreamsRef.current.map((s) => s.material as THREE.MeshPhysicalMaterial),
+      { opacity: 0, emissiveIntensity: 0, duration: 1.2, ease: 'power2.inOut' },
+      10.2
+    );
 
     onSceneReady?.();
 
     // -------------------------------------------------------------
-    // 9. CONTINUOUS SUBTLE AMBIENT TICKER LOOP
+    // 10. CONTINUOUS SUBTLE AMBIENT TICKER LOOP
     // -------------------------------------------------------------
     let clock = new THREE.Clock();
 
@@ -378,18 +515,18 @@ export const SettleWorldScene: React.FC<SettleWorldSceneProps> = ({
       reqIdRef.current = requestAnimationFrame(animate);
       const elapsed = clock.getElapsedTime();
 
-      // Ultra-subtle organic breathing of central prism
-      if (centralGroup) {
-        centralGroup.position.y = 0.25 + Math.sin(elapsed * 1.5) * 0.015;
-        corePrism.rotation.y = elapsed * 0.15;
+      // Subtle organic levitation of central crystal
+      if (centerGroup) {
+        centerGroup.position.y = 0.38 + Math.sin(elapsed * 1.6) * 0.018;
+        coreMesh.rotation.y = elapsed * 0.2;
       }
 
       // Parallax mouse responsiveness
       const targetCamX = mousePos.current.x * 0.18;
-      const targetCamY = 2.4 + mousePos.current.y * 0.12;
+      const targetCamY = 2.6 + mousePos.current.y * 0.12;
       camera.position.x += (targetCamX - camera.position.x) * 0.035;
       camera.position.y += (targetCamY - camera.position.y) * 0.035;
-      camera.lookAt(0, 0.2, 0);
+      camera.lookAt(0, 0.25, 0);
 
       renderer.render(scene, camera);
     };
@@ -410,7 +547,7 @@ export const SettleWorldScene: React.FC<SettleWorldSceneProps> = ({
         ref={containerRef}
         style={{
           width: '100%',
-          height: isDesktop ? 280 : isTablet ? 260 : 230,
+          height: isDesktop ? 290 : isTablet ? 260 : 230,
           position: 'relative',
           cursor: 'grab',
         }}
