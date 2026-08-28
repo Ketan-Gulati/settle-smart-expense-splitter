@@ -239,21 +239,12 @@ export default function GroupOverviewScreen() {
     if (tab === 'settle') {
       router.push(`/groups/${group.id}/settle` as any);
     }
-  };
-
-  return (
+  };    return (
     <View style={[styles.container, { backgroundColor: theme.colors.background }]}>
       {/* 1. Detail Header */}
       <DetailHeader
         title={group.name}
         onBackPress={() => router.back()}
-        rightAction={
-          <Pressable onPress={() => setInviteModalVisible(true)} style={{ padding: 4 }}>
-            <Text variant="caption" weight="bold" color={theme.colors.primary}>
-              + Invite
-            </Text>
-          </Pressable>
-        }
       />
 
       <ScrollView contentContainerStyle={styles.content} showsVerticalScrollIndicator={false}>
@@ -294,7 +285,7 @@ export default function GroupOverviewScreen() {
               style={[styles.inviteChip, { backgroundColor: theme.colors.surfaceSubtle, borderColor: theme.colors.border }]}
             >
               <Text variant="caption" weight="bold" color={theme.colors.primary}>
-                + Invite {group.activeInvite ? `(${group.activeInvite.inviteCode})` : 'People'}
+                + Invite
               </Text>
             </Pressable>
           </View>
