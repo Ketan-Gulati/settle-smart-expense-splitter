@@ -22,11 +22,14 @@ export default function GroupsScreen() {
   const [groupItems, setGroupItems] = useState<GroupListItem[]>([]);
   const [loading, setLoading] = useState(true);
 
-  // Create Group Modal State
-  const [modalVisible, setModalVisible] = useState(false);
-  const [groupName, setGroupName] = useState('');
-  const [creating, setCreating] = useState(false);
-  const [createError, setCreateError] = useState<string | null>(null);
+  // Add Group Action Sheet State
+  const [actionSheetVisible, setActionSheetVisible] = useState(false);
+
+  // Join via Invite Code Modal State
+  const [joinModalVisible, setJoinModalVisible] = useState(false);
+  const [inviteCodeInput, setInviteCodeInput] = useState('');
+  const [joining, setJoining] = useState(false);
+  const [joinError, setJoinError] = useState<string | null>(null);
 
   const loadGroups = useCallback(async () => {
     try {
@@ -98,31 +101,39 @@ export default function GroupsScreen() {
     loadGroups();
   }, [loadGroups, dataVersion]);
 
-  const handleCreateGroup = async () => {
-    if (!groupName.trim()) {
-      setCreateError('Group name is required.');
+  const getGroupInitial = (name: string) => {
+    return name.charAt(0).toUpperCase() || 'G';
+  };
+
+  const handleJoinViaCode = async () => {
+    const rawCode = inviteCodeInput.trim();
+    if (!rawCode) {
+      setJoinError('Please enter an invite code or link.');
       return;
     }
 
     try {
-      setCreating(true);
-      setCreateError(null);
+      setJoining(true);
+      setJoinError(null);
 
-      const newGroup = await SettleApiService.createGroup(groupName.trim(), 'INR');
+      // Extract code or token if user pasted full URL
+      let cleanCode = rawCode;
+      if (rawCode.includes('/invite/')) {
+        cleanCode = rawCode.split('/invite/')[1]?.split('?')[0] || rawCode;
+      }
 
-      setGroupName('');
-      setModalVisible(false);
+      const joinedGroup = await SettleApiService.joinGroupViaInvite(cleanCode);
+
+      setInviteCodeInput('');
+      setJoinModalVisible(false);
       notifyDataChanged();
-      router.push(`/groups/${newGroup.id}` as any);
+      router.push(`/groups/${joinedGroup.id}` as any);
     } catch (err: any) {
-      setCreateError(err.message || 'Failed to create group');
+      console.error('Join via code error:', err);
+      setJoinError(err.message || 'Invalid or expired invite code.');
     } finally {
-      setCreating(false);
+      setJoining(false);
     }
-  };
-
-  const getGroupInitial = (name: string) => {
-    return name.charAt(0).toUpperCase() || 'G';
   };
 
   return (
@@ -141,18 +152,18 @@ export default function GroupsScreen() {
           title="No groups yet"
           description="Create a group for your trip, housemates, or dinner to start sharing expenses."
           actionLabel="Create First Group"
-          onAction={() => router.push('/groups/new' as any)}
+          onAction={() => setActionSheetVisible(true)}
           style={styles.empty}
         />
       ) : (
         <ScrollView contentContainerStyle={styles.listContent}>
-          {/* Header Row: "Groups" + Black "+" Button */}
+          {/* Header Row: "Groups" + Plus "+" Button */}
           <View style={styles.titleRow}>
             <Text variant="displayLarge" weight="bold">
               Groups
             </Text>
             <Pressable
-              onPress={() => router.push('/groups/new' as any)}
+              onPress={() => setActionSheetVisible(true)}
               style={[styles.plusButton, { backgroundColor: theme.colors.primary }]}
             >
               <Text variant="title" weight="bold" color={theme.colors.primaryForeground}>
@@ -161,7 +172,7 @@ export default function GroupsScreen() {
             </Pressable>
           </View>
 
-          {/* Group Rows strictly matching Groups (Final) */}
+          {/* Group Rows */}
           <View style={styles.groupList}>
             {groupItems.map(({ group, netBalanceMinor }, idx) => {
               const isPositive = netBalanceMinor > 0;
@@ -245,24 +256,138 @@ export default function GroupsScreen() {
         </ScrollView>
       )}
 
-      {/* Create Group Modal */}
-      <Modal visible={modalVisible} animationType="slide" transparent>
+      {/* 1. Action Sheet Modal (2 Options: Create New Group or Join via Invite Code) */}
+      <Modal visible={actionSheetVisible} animationType="fade" transparent>
+        <Pressable
+          style={[styles.modalOverlay, { backgroundColor: theme.colors.overlay }]}
+          onPress={() => setActionSheetVisible(false)}
+        >
+          <Pressable
+            style={[styles.sheetContent, { backgroundColor: theme.colors.surfaceElevated }]}
+            onPress={(e) => e.stopPropagation()}
+          >
+            <View style={styles.sheetHandle} />
+            <Text variant="title" weight="bold" style={styles.sheetTitle}>
+              Add Group
+            </Text>
+            <Text variant="bodySecondary" color={theme.colors.textMuted} style={styles.sheetSubtitle}>
+              Start a new shared expense group or join an existing one.
+            </Text>
+
+            <View style={styles.optionsWrapper}>
+              {/* Option 1: Create New Group */}
+              <Pressable
+                onPress={() => {
+                  setActionSheetVisible(false);
+                  router.push('/groups/new' as any);
+                }}
+                style={({ pressed }) => [
+                  styles.optionCard,
+                  {
+                    backgroundColor: theme.colors.surface,
+                    borderColor: theme.colors.border,
+                    opacity: pressed ? 0.85 : 1,
+                  },
+                ]}
+              >
+                <View style={[styles.optionIconContainer, { backgroundColor: theme.colors.primarySubtle }]}>
+                  <Text style={{ fontSize: 22 }}>✨</Text>
+                </View>
+                <View style={styles.optionTextContainer}>
+                  <Text variant="body" weight="bold" color={theme.colors.textPrimary}>
+                    Create New Group
+                  </Text>
+                  <Text variant="caption" color={theme.colors.textMuted}>
+                    Set up expenses for a trip, housemates, or dinner
+                  </Text>
+                </View>
+                <Text variant="body" color={theme.colors.textMuted}>
+                  ›
+                </Text>
+              </Pressable>
+
+              {/* Option 2: Join via Invite Code */}
+              <Pressable
+                onPress={() => {
+                  setActionSheetVisible(false);
+                  setJoinError(null);
+                  setInviteCodeInput('');
+                  setJoinModalVisible(true);
+                }}
+                style={({ pressed }) => [
+                  styles.optionCard,
+                  {
+                    backgroundColor: theme.colors.surface,
+                    borderColor: theme.colors.border,
+                    opacity: pressed ? 0.85 : 1,
+                  },
+                ]}
+              >
+                <View style={[styles.optionIconContainer, { backgroundColor: 'rgba(16, 185, 129, 0.12)' }]}>
+                  <Text style={{ fontSize: 22 }}>🔑</Text>
+                </View>
+                <View style={styles.optionTextContainer}>
+                  <Text variant="body" weight="bold" color={theme.colors.textPrimary}>
+                    Join via Invite Code
+                  </Text>
+                  <Text variant="caption" color={theme.colors.textMuted}>
+                    Enter a code or link shared by a friend
+                  </Text>
+                </View>
+                <Text variant="body" color={theme.colors.textMuted}>
+                  ›
+                </Text>
+              </Pressable>
+            </View>
+
+            <Button
+              title="Cancel"
+              variant="subtle"
+              size="large"
+              onPress={() => setActionSheetVisible(false)}
+              style={styles.cancelBtn}
+            />
+          </Pressable>
+        </Pressable>
+      </Modal>
+
+      {/* 2. Join via Invite Code Modal */}
+      <Modal visible={joinModalVisible} animationType="slide" transparent>
         <View style={[styles.modalOverlay, { backgroundColor: theme.colors.overlay }]}>
           <Surface variant="elevated" style={styles.modalContent}>
             <Text variant="headline" style={styles.modalTitle}>
-              Create New Group
+              Join a Group
             </Text>
+            <Text variant="bodySecondary" color={theme.colors.textMuted} style={{ marginBottom: 12 }}>
+              Paste the 6-character code (e.g. SETTLE) or full invite link to join your group.
+            </Text>
+
             <Input
-              label="Group Name"
-              placeholder="e.g. Ski Trip '24, Apartment 4B"
-              value={groupName}
-              onChangeText={setGroupName}
+              label="Invite Code or Link"
+              placeholder="e.g. AB12CD or https://settle.app/invite/..."
+              value={inviteCodeInput}
+              autoCapitalize="characters"
+              autoCorrect={false}
+              onChangeText={(val) => {
+                setInviteCodeInput(val);
+                if (joinError) setJoinError(null);
+              }}
             />
 
-            {createError && (
-              <Text variant="caption" color={theme.colors.negative} style={styles.errorText}>
-                {createError}
-              </Text>
+            {joinError && (
+              <View
+                style={[
+                  styles.errorBanner,
+                  {
+                    backgroundColor: theme.isDark ? 'rgba(239, 68, 68, 0.15)' : '#FEF2F2',
+                    borderColor: theme.isDark ? 'rgba(239, 68, 68, 0.3)' : '#FCA5A5',
+                  },
+                ]}
+              >
+                <Text variant="caption" weight="medium" color={theme.colors.negative}>
+                  {joinError}
+                </Text>
+              </View>
             )}
 
             <View style={styles.modalButtons}>
@@ -271,17 +396,18 @@ export default function GroupsScreen() {
                 variant="subtle"
                 size="medium"
                 onPress={() => {
-                  setModalVisible(false);
-                  setCreateError(null);
+                  setJoinModalVisible(false);
+                  setJoinError(null);
                 }}
-                disabled={creating}
+                disabled={joining}
               />
               <Button
-                title={creating ? 'Creating...' : 'Create Group'}
+                title={joining ? 'Joining...' : 'Join Group'}
                 variant="primary"
                 size="medium"
-                onPress={handleCreateGroup}
-                loading={creating}
+                onPress={handleJoinViaCode}
+                loading={joining}
+                disabled={!inviteCodeInput.trim()}
               />
             </View>
           </Surface>
@@ -361,6 +487,57 @@ const styles = StyleSheet.create({
     flex: 1,
     justifyContent: 'flex-end',
   },
+  sheetContent: {
+    borderTopLeftRadius: 24,
+    borderTopRightRadius: 24,
+    padding: 24,
+    maxWidth: 440,
+    width: '100%',
+    alignSelf: 'center',
+    gap: 12,
+  },
+  sheetHandle: {
+    width: 36,
+    height: 4,
+    borderRadius: 2,
+    backgroundColor: '#94A3B8',
+    opacity: 0.4,
+    alignSelf: 'center',
+    marginBottom: 8,
+  },
+  sheetTitle: {
+    textAlign: 'center',
+  },
+  sheetSubtitle: {
+    textAlign: 'center',
+    marginBottom: 8,
+  },
+  optionsWrapper: {
+    gap: 12,
+    marginVertical: 8,
+  },
+  optionCard: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    padding: 16,
+    borderRadius: 16,
+    borderWidth: 1,
+    gap: 16,
+  },
+  optionIconContainer: {
+    width: 44,
+    height: 44,
+    borderRadius: 12,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  optionTextContainer: {
+    flex: 1,
+    gap: 2,
+  },
+  cancelBtn: {
+    marginTop: 8,
+  },
   modalContent: {
     borderTopLeftRadius: 20,
     borderTopRightRadius: 20,
@@ -371,7 +548,7 @@ const styles = StyleSheet.create({
     alignSelf: 'center',
   },
   modalTitle: {
-    marginBottom: 8,
+    marginBottom: 4,
   },
   modalButtons: {
     flexDirection: 'row',
@@ -379,7 +556,9 @@ const styles = StyleSheet.create({
     gap: 12,
     marginTop: 12,
   },
-  errorText: {
-    marginTop: -8,
+  errorBanner: {
+    padding: 12,
+    borderRadius: 8,
+    borderWidth: 1,
   },
 });
