@@ -26,129 +26,74 @@ export const SettleWorldScene: React.FC<SettleWorldSceneProps> = ({
   const isDesktop = windowWidth >= 1024;
   const isTablet = windowWidth >= 768 && windowWidth < 1024;
 
-  // Three.js References
+  // Scene references
   const sceneRef = useRef<THREE.Scene | null>(null);
   const rendererRef = useRef<THREE.WebGLRenderer | null>(null);
   const cameraRef = useRef<THREE.PerspectiveCamera | null>(null);
-  const charactersRef = useRef<THREE.Group[]>([]);
-  const centralCoreRef = useRef<THREE.Group | null>(null);
-  const floatingBadgesRef = useRef<THREE.Group[]>([]);
-  const neonRingsRef = useRef<THREE.Mesh[]>([]);
+  const personTokensRef = useRef<THREE.Group[]>([]);
+  const settlementCoreRef = useRef<THREE.Group | null>(null);
+  const innerRingRef = useRef<THREE.Mesh | null>(null);
+  const outerRingRef = useRef<THREE.Mesh | null>(null);
+  const valueParticlesRef = useRef<THREE.Mesh[]>([]);
+  const timelineRef = useRef<gsap.core.Timeline | null>(null);
   const mousePos = useRef<THREE.Vector2>(new THREE.Vector2(0, 0));
   const reqIdRef = useRef<number | null>(null);
 
-  // Helper to create glossy canvas texture with crisp icon/symbol
-  const createIconTexture = (type: 'rupee' | 'group' | 'pie') => {
-    if (typeof document === 'undefined') return null;
-    const canvas = document.createElement('canvas');
-    canvas.width = 256;
-    canvas.height = 256;
-    const ctx = canvas.getContext('2d');
-    if (!ctx) return null;
-
-    // Dark sleek background
-    ctx.fillStyle = '#0f172a';
-    ctx.fillRect(0, 0, 256, 256);
-
-    ctx.fillStyle = '#38bdf8';
-    ctx.strokeStyle = '#38bdf8';
-    ctx.lineWidth = 14;
-    ctx.lineCap = 'round';
-    ctx.lineJoin = 'round';
-    ctx.textAlign = 'center';
-    ctx.textBaseline = 'middle';
-
-    if (type === 'rupee') {
-      ctx.font = 'bold 130px -apple-system, sans-serif';
-      ctx.fillText('₹', 128, 134);
-    } else if (type === 'group') {
-      // 3 Stylized People Heads & Bodies
-      // Center Person
-      ctx.beginPath();
-      ctx.arc(128, 95, 32, 0, Math.PI * 2);
-      ctx.fill();
-      ctx.beginPath();
-      ctx.arc(128, 200, 56, Math.PI, 0);
-      ctx.fill();
-
-      // Left Person
-      ctx.fillStyle = 'rgba(56, 189, 248, 0.75)';
-      ctx.beginPath();
-      ctx.arc(70, 115, 24, 0, Math.PI * 2);
-      ctx.fill();
-      ctx.beginPath();
-      ctx.arc(70, 205, 42, Math.PI, 0);
-      ctx.fill();
-
-      // Right Person
-      ctx.beginPath();
-      ctx.arc(186, 115, 24, 0, Math.PI * 2);
-      ctx.fill();
-      ctx.beginPath();
-      ctx.arc(186, 205, 42, Math.PI, 0);
-      ctx.fill();
-    } else if (type === 'pie') {
-      // Modern Donut/Pie chart
-      ctx.beginPath();
-      ctx.arc(128, 128, 70, -Math.PI / 2, Math.PI * 0.9);
-      ctx.stroke();
-
-      ctx.strokeStyle = '#a855f7';
-      ctx.beginPath();
-      ctx.arc(128, 128, 70, Math.PI * 0.9, -Math.PI / 2);
-      ctx.stroke();
-    }
-
-    const texture = new THREE.CanvasTexture(canvas);
-    texture.needsUpdate = true;
-    return texture;
-  };
-
-  // Interaction reactions
+  // Form interaction responsiveness
   useEffect(() => {
-    if (!charactersRef.current.length || !centralCoreRef.current) return;
+    if (!personTokensRef.current.length || !settlementCoreRef.current) return;
 
     if (interactionState === 'email_focused') {
-      charactersRef.current.forEach((char, idx) => {
-        gsap.to(char.position, {
-          y: 0.12,
-          duration: 0.4,
-          ease: 'back.out(1.6)',
-        });
-        gsap.to(char.rotation, {
-          y: idx === 0 ? 0.3 : idx === 1 ? 0 : -0.3,
-          duration: 0.5,
-        });
-      });
-    } else if (interactionState === 'password_focused') {
-      charactersRef.current.forEach((char) => {
-        gsap.to(char.position, { y: 0, duration: 0.4 });
-      });
-    } else if (interactionState === 'google_hover' || interactionState === 'otp_hover') {
-      floatingBadgesRef.current.forEach((badge) => {
-        gsap.to(badge.position, {
-          y: '+=0.15',
-          duration: 0.3,
-          yoyo: true,
-          repeat: 1,
+      personTokensRef.current.forEach((token, idx) => {
+        gsap.to(token.position, {
+          y: idx === 0 ? 0.22 : 0.08,
+          duration: 0.6,
           ease: 'power2.out',
         });
       });
-    } else if (interactionState === 'submitting') {
-      gsap.to(centralCoreRef.current.rotation, {
-        y: '+=3.14',
-        duration: 0.6,
-        ease: 'power2.inOut',
+      if (settlementCoreRef.current) {
+        gsap.to(settlementCoreRef.current.rotation, {
+          z: 0.08,
+          x: -0.04,
+          duration: 0.5,
+          ease: 'power2.out',
+        });
+      }
+    } else if (interactionState === 'password_focused') {
+      personTokensRef.current.forEach((token) => {
+        gsap.to(token.position, { y: 0.12, duration: 0.5, ease: 'power2.out' });
       });
-    } else if (interactionState === 'success') {
-      neonRingsRef.current.forEach((ring) => {
-        gsap.to((ring.material as THREE.MeshStandardMaterial), {
-          emissiveIntensity: 3.0,
+      if (settlementCoreRef.current) {
+        gsap.to(settlementCoreRef.current.rotation, {
+          z: 0,
+          x: 0,
+          duration: 0.5,
+          ease: 'power2.out',
+        });
+      }
+    } else if (interactionState === 'google_hover' || interactionState === 'otp_hover') {
+      if (innerRingRef.current) {
+        gsap.to(innerRingRef.current.rotation, {
+          z: '+=1.57',
+          duration: 0.8,
+          ease: 'power2.inOut',
+        });
+      }
+    } else if (interactionState === 'submitting') {
+      // Rapid convergence to perfect equilibrium
+      personTokensRef.current.forEach((token) => {
+        gsap.to(token.position, { y: 0.1, duration: 0.4, ease: 'power3.out' });
+      });
+      if (settlementCoreRef.current) {
+        gsap.to(settlementCoreRef.current.scale, {
+          x: 1.1,
+          y: 1.1,
+          z: 1.1,
           duration: 0.4,
           yoyo: true,
           repeat: 1,
         });
-      });
+      }
     }
   }, [interactionState]);
 
@@ -157,19 +102,19 @@ export const SettleWorldScene: React.FC<SettleWorldSceneProps> = ({
 
     const container = containerRef.current;
     const width = container.clientWidth || (isDesktop ? 540 : isTablet ? 480 : windowWidth);
-    const height = container.clientHeight || (isDesktop ? 480 : isTablet ? 380 : 320);
+    const height = container.clientHeight || (isDesktop ? 340 : isTablet ? 300 : 270);
 
     // 1. Scene
     const scene = new THREE.Scene();
     sceneRef.current = scene;
 
-    // 2. Camera: Cinematic dramatic front-isometric elevation
-    const camera = new THREE.PerspectiveCamera(35, width / height, 0.1, 100);
-    camera.position.set(0, 3.4, 6.2);
-    camera.lookAt(0, 0.7, 0);
+    // 2. Camera: Subtle high-end luxury product perspective
+    const camera = new THREE.PerspectiveCamera(32, width / height, 0.1, 100);
+    camera.position.set(0, 2.6, 5.2);
+    camera.lookAt(0, 0.3, 0);
     cameraRef.current = camera;
 
-    // 3. Renderer with ACES ToneMapping for rich glowing neon aesthetics
+    // 3. WebGL Renderer with High Precision & ACES Filmic Tone Mapping
     const renderer = new THREE.WebGLRenderer({
       alpha: true,
       antialias: true,
@@ -178,7 +123,7 @@ export const SettleWorldScene: React.FC<SettleWorldSceneProps> = ({
     renderer.setSize(width, height);
     renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
     renderer.toneMapping = THREE.ACESFilmicToneMapping;
-    renderer.toneMappingExposure = 1.35;
+    renderer.toneMappingExposure = 1.15;
     renderer.shadowMap.enabled = true;
     renderer.shadowMap.type = THREE.PCFSoftShadowMap;
     rendererRef.current = renderer;
@@ -186,302 +131,311 @@ export const SettleWorldScene: React.FC<SettleWorldSceneProps> = ({
     container.innerHTML = '';
     container.appendChild(renderer.domElement);
 
-    // 4. Dramatic Studio Lighting (Cyan, Emerald, Purple Rim & Top Spot)
-    const ambientLight = new THREE.AmbientLight(0x0a0f1d, 3.0);
+    // -------------------------------------------------------------
+    // 4. HIGH-END STUDIO LIGHTING (Soft Key, Translucent Rim, Subtle Cyan)
+    // -------------------------------------------------------------
+    const ambientLight = new THREE.AmbientLight(0x0f172a, 2.4);
     scene.add(ambientLight);
 
-    const topSpot = new THREE.SpotLight(0xffffff, 5.0);
-    topSpot.position.set(0, 7.5, 3.5);
-    topSpot.angle = Math.PI / 4;
-    topSpot.penumbra = 0.6;
-    topSpot.castShadow = true;
-    scene.add(topSpot);
+    // Main Soft Studio Overhead Key
+    const keySpot = new THREE.SpotLight(0xf8fafc, 3.8);
+    keySpot.position.set(2, 6.0, 3.5);
+    keySpot.angle = Math.PI / 5;
+    keySpot.penumbra = 0.8;
+    keySpot.castShadow = true;
+    keySpot.shadow.mapSize.width = 1024;
+    keySpot.shadow.mapSize.height = 1024;
+    scene.add(keySpot);
 
-    // Cyan Neon Accent Light
-    const cyanNeonLight = new THREE.PointLight(0x00e5ff, 4.0, 10);
-    cyanNeonLight.position.set(0, 0.9, 0);
-    scene.add(cyanNeonLight);
+    // Soft Rim Light (Satin Silver Reflections)
+    const satinRim = new THREE.DirectionalLight(0x94a3b8, 1.8);
+    satinRim.position.set(-3.5, 3.0, -2.5);
+    scene.add(satinRim);
 
-    // Emerald Glow Light
-    const emeraldRim = new THREE.PointLight(0x10b981, 3.5, 8);
-    emeraldRim.position.set(0, 1.8, -1.5);
-    scene.add(emeraldRim);
+    // Controlled Settle Cyan Highlight
+    const cyanAccent = new THREE.PointLight(0x0ea5e9, 2.8, 7.5);
+    cyanAccent.position.set(0, 1.2, 0.5);
+    scene.add(cyanAccent);
 
-    // Purple Side Light
-    const purpleRim = new THREE.PointLight(0xa855f7, 3.0, 8);
-    purpleRim.position.set(2.8, 1.5, 1.2);
-    scene.add(purpleRim);
-
-    // Blue Side Light
-    const blueRim = new THREE.PointLight(0x0084ff, 3.0, 8);
-    blueRim.position.set(-2.8, 1.5, 1.2);
-    scene.add(blueRim);
+    // Deep Indigo Ambient Fill
+    const indigoFill = new THREE.PointLight(0x6366f1, 1.2, 8);
+    indigoFill.position.set(0, -1.0, 2.0);
+    scene.add(indigoFill);
 
     const worldGroup = new THREE.Group();
     scene.add(worldGroup);
 
     // -------------------------------------------------------------
-    // 5. STEPPED GLOSSY BLACK PODIUM BASE
+    // 5. MINIMAL SUSPENDED HORIZON PLANE (Ultra-thin Smoked Glass Disc)
     // -------------------------------------------------------------
-    const podiumGroup = new THREE.Group();
-    worldGroup.add(podiumGroup);
+    const horizonGroup = new THREE.Group();
+    worldGroup.add(horizonGroup);
 
-    // Lower Tier Plinth
-    const baseGeo = new THREE.CylinderGeometry(2.0, 2.1, 0.22, 64);
-    const darkMat = new THREE.MeshPhysicalMaterial({
-      color: 0x080b12,
-      roughness: 0.25,
-      metalness: 0.15,
-      clearcoat: 0.6,
+    const discGeo = new THREE.CylinderGeometry(1.85, 1.88, 0.02, 64);
+    const discMat = new THREE.MeshPhysicalMaterial({
+      color: 0x090d16,
+      roughness: 0.15,
+      metalness: 0.3,
+      transmission: 0.7,
+      transparent: true,
+      opacity: 0.85,
+      clearcoat: 1.0,
+      clearcoatRoughness: 0.1,
     });
-    const baseMesh = new THREE.Mesh(baseGeo, darkMat);
-    baseMesh.position.y = 0.11;
-    baseMesh.receiveShadow = true;
-    podiumGroup.add(baseMesh);
+    const horizonDisc = new THREE.Mesh(discGeo, discMat);
+    horizonDisc.position.y = -0.05;
+    horizonDisc.receiveShadow = true;
+    horizonGroup.add(horizonDisc);
 
-    // Lower Base Electric Blue Glow Ring
-    const baseRingGeo = new THREE.TorusGeometry(2.02, 0.022, 16, 64);
-    const baseRingMat = new THREE.MeshStandardMaterial({
-      color: 0x0084ff,
-      emissive: 0x0084ff,
-      emissiveIntensity: 2.2,
-      roughness: 0.1,
+    // Precision Inset Groove on Disc
+    const grooveGeo = new THREE.TorusGeometry(1.42, 0.008, 16, 80);
+    const grooveMat = new THREE.MeshStandardMaterial({
+      color: 0x334155,
+      roughness: 0.3,
+      metalness: 0.8,
     });
-    const baseRing = new THREE.Mesh(baseRingGeo, baseRingMat);
-    baseRing.rotation.x = Math.PI / 2;
-    baseRing.position.y = 0.08;
-    podiumGroup.add(baseRing);
-
-    // Upper Tier Cylinder Platform
-    const topTierGeo = new THREE.CylinderGeometry(1.68, 1.74, 0.38, 64);
-    const topTierMat = new THREE.MeshPhysicalMaterial({
-      color: 0x0c101c,
-      roughness: 0.2,
-      metalness: 0.2,
-      clearcoat: 0.8,
-    });
-    const topTierMesh = new THREE.Mesh(topTierGeo, topTierMat);
-    topTierMesh.position.y = 0.38;
-    topTierMesh.receiveShadow = true;
-    podiumGroup.add(topTierMesh);
-
-    // Primary Vibrant Cyan Neon Track Ring
-    const neonRingGeo = new THREE.TorusGeometry(1.36, 0.038, 20, 80);
-    const neonRingMat = new THREE.MeshStandardMaterial({
-      color: 0x00f0ff,
-      emissive: 0x00f0ff,
-      emissiveIntensity: 2.8,
-      roughness: 0.1,
-    });
-    const neonRing = new THREE.Mesh(neonRingGeo, neonRingMat);
-    neonRing.rotation.x = Math.PI / 2;
-    neonRing.position.y = 0.58;
-    podiumGroup.add(neonRing);
-    neonRingsRef.current = [neonRing, baseRing];
+    const groove = new THREE.Mesh(grooveGeo, grooveMat);
+    groove.rotation.x = Math.PI / 2;
+    groove.position.y = -0.038;
+    horizonGroup.add(groove);
 
     // -------------------------------------------------------------
-    // 6. CENTRAL LEVITATING SPLIT ORB & EMBLEM
-    // Top Emerald Dome, Middle Cyan Slab, Bottom Emerald Dome
+    // 6. CENTRAL ABSTRACT SETTLEMENT CORE
+    // Precision Engineered Balancing Mechanism:
+    // Floating Smoked Glass Rhombus/Core + Dual Satin Gimbal Rings
     // -------------------------------------------------------------
     const coreGroup = new THREE.Group();
-    coreGroup.position.set(0, 1.1, 0);
+    coreGroup.position.set(0, 0.72, 0);
     worldGroup.add(coreGroup);
-    centralCoreRef.current = coreGroup;
+    settlementCoreRef.current = coreGroup;
 
-    const orbEmeraldMat = new THREE.MeshPhysicalMaterial({
-      color: 0x00e699,
-      emissive: 0x00b377,
-      emissiveIntensity: 0.8,
-      roughness: 0.15,
+    // Satin Metal Material for Precision Rings
+    const satinMetalMat = new THREE.MeshPhysicalMaterial({
+      color: 0xcfd8dc,
+      roughness: 0.25,
+      metalness: 0.85,
+      clearcoat: 0.5,
+      clearcoatRoughness: 0.1,
+    });
+
+    // Outer Precision Gimbal Ring
+    const outerRingGeo = new THREE.TorusGeometry(0.58, 0.014, 16, 64);
+    const outerRing = new THREE.Mesh(outerRingGeo, satinMetalMat);
+    coreGroup.add(outerRing);
+    outerRingRef.current = outerRing;
+
+    // Inner Precision Ring (Offset & Slanted)
+    const innerRingGeo = new THREE.TorusGeometry(0.44, 0.012, 16, 64);
+    const innerRingMat = new THREE.MeshPhysicalMaterial({
+      color: 0x38bdf8,
+      emissive: 0x0284c7,
+      emissiveIntensity: 0.5,
+      roughness: 0.2,
+      metalness: 0.7,
+      clearcoat: 0.8,
+    });
+    const innerRing = new THREE.Mesh(innerRingGeo, innerRingMat);
+    innerRing.rotation.x = Math.PI / 4;
+    coreGroup.add(innerRing);
+    innerRingRef.current = innerRing;
+
+    // Central Floating Smoked Glass Equilibrium Core (Beveled Octahedron)
+    const coreGeo = new THREE.OctahedronGeometry(0.24, 1);
+    const coreMat = new THREE.MeshPhysicalMaterial({
+      color: 0x0f172a,
+      emissive: 0x0284c7,
+      emissiveIntensity: 0.35,
+      roughness: 0.1,
       metalness: 0.1,
+      transmission: 0.85,
+      transparent: true,
+      opacity: 0.95,
+      ior: 1.52,
       clearcoat: 1.0,
-      clearcoatRoughness: 0.08,
     });
+    const coreMesh = new THREE.Mesh(coreGeo, coreMat);
+    coreMesh.castShadow = true;
+    coreGroup.add(coreMesh);
 
-    // Top Dome (Half Sphere)
-    const topDomeGeo = new THREE.SphereGeometry(0.38, 32, 24, 0, Math.PI * 2, 0, Math.PI / 2);
-    const topDome = new THREE.Mesh(topDomeGeo, orbEmeraldMat);
-    topDome.position.y = 0.14;
-    topDome.castShadow = true;
-    coreGroup.add(topDome);
-
-    // Center Settle Divider Bar (Horizontal Bright Cyan Slab)
-    const slabGeo = new THREE.BoxGeometry(0.64, 0.11, 0.28);
-    const slabMat = new THREE.MeshPhysicalMaterial({
-      color: 0x0084ff,
-      emissive: 0x0070e0,
-      emissiveIntensity: 0.9,
-      roughness: 0.15,
-      metalness: 0.2,
-      clearcoat: 0.9,
+    // Subtle Internal Luminous Bead at Core Center
+    const beadGeo = new THREE.SphereGeometry(0.065, 24, 24);
+    const beadMat = new THREE.MeshStandardMaterial({
+      color: 0x38bdf8,
+      emissive: 0x38bdf8,
+      emissiveIntensity: 1.6,
     });
-    const slab = new THREE.Mesh(slabGeo, slabMat);
-    slab.position.y = 0.05;
-    slab.castShadow = true;
-    coreGroup.add(slab);
-
-    // Bottom Dome (Inverted Half Sphere)
-    const bottomDomeGeo = new THREE.SphereGeometry(0.38, 32, 24, 0, Math.PI * 2, Math.PI / 2, Math.PI / 2);
-    const bottomDome = new THREE.Mesh(bottomDomeGeo, orbEmeraldMat);
-    bottomDome.position.y = -0.04;
-    bottomDome.castShadow = true;
-    coreGroup.add(bottomDome);
+    const bead = new THREE.Mesh(beadGeo, beadMat);
+    coreGroup.add(bead);
 
     // -------------------------------------------------------------
-    // 7. THREE COLORFUL MINIMAL HUMAN MATTE AVATARS
-    // Blue (Left), Deep Green (Center-Back), Purple (Right)
+    // 7. THREE ABSTRACT PERSON TOKENS
+    // Minimal Architectural Sculptures: Weighted Satin Metal Base + Smoked Glass Capsule
     // -------------------------------------------------------------
-    const avatarsGroup = new THREE.Group();
-    worldGroup.add(avatarsGroup);
-    charactersRef.current = [];
+    const tokensGroup = new THREE.Group();
+    worldGroup.add(tokensGroup);
+    personTokensRef.current = [];
 
-    const avatarsData = [
-      { name: 'Blue', color: 0x0070f3, angle: Math.PI * 1.05, dist: 1.76 }, // Left Front
-      { name: 'Green', color: 0x059669, angle: -Math.PI * 0.5, dist: 1.62 }, // Center Back
-      { name: 'Purple', color: 0x7c3aed, angle: -Math.PI * 0.05, dist: 1.76 }, // Right Front
+    const tokensData = [
+      { id: 'tokenA', angle: -Math.PI * 0.75, dist: 1.35, label: 'A' }, // Left Front
+      { id: 'tokenB', angle: Math.PI * 0.5, dist: 1.25, label: 'B' },   // Top Center
+      { id: 'tokenC', angle: -Math.PI * 0.25, dist: 1.35, label: 'C' },  // Right Front
     ];
 
-    avatarsData.forEach((av) => {
-      const char = new THREE.Group();
-      const posX = Math.cos(av.angle) * av.dist;
-      const posZ = Math.sin(av.angle) * av.dist;
-      char.position.set(posX, 0.2, posZ);
+    const tokenMeshes: THREE.Group[] = [];
 
-      // Matte Character Material
-      const avatarMat = new THREE.MeshPhysicalMaterial({
-        color: av.color,
-        roughness: 0.35,
-        metalness: 0.05,
-        clearcoat: 0.4,
+    tokensData.forEach((td) => {
+      const token = new THREE.Group();
+      const x = Math.cos(td.angle) * td.dist;
+      const z = Math.sin(td.angle) * td.dist;
+      token.position.set(x, 0.12, z);
+
+      // Weighted Satin Titanium Base
+      const basePlinthGeo = new THREE.CylinderGeometry(0.18, 0.21, 0.08, 32);
+      const basePlinth = new THREE.Mesh(basePlinthGeo, satinMetalMat);
+      basePlinth.position.y = 0.04;
+      basePlinth.castShadow = true;
+      basePlinth.receiveShadow = true;
+      token.add(basePlinth);
+
+      // Precision Smoked Glass Pill / Column
+      const columnGeo = new THREE.CylinderGeometry(0.14, 0.14, 0.38, 32);
+      const columnMat = new THREE.MeshPhysicalMaterial({
+        color: 0x1e293b,
+        roughness: 0.15,
+        metalness: 0.2,
+        transmission: 0.75,
+        transparent: true,
+        opacity: 0.9,
+        clearcoat: 1.0,
       });
+      const column = new THREE.Mesh(columnGeo, columnMat);
+      column.position.y = 0.27;
+      column.castShadow = true;
+      token.add(column);
 
-      // Smooth Rounded Shoulders/Torso
-      const bodyGeo = new THREE.CylinderGeometry(0.24, 0.34, 0.62, 32);
-      const body = new THREE.Mesh(bodyGeo, avatarMat);
-      body.position.y = 0.31;
-      body.castShadow = true;
-      char.add(body);
+      // Rounded Satin Top Dome
+      const domeGeo = new THREE.SphereGeometry(0.14, 32, 16, 0, Math.PI * 2, 0, Math.PI / 2);
+      const dome = new THREE.Mesh(domeGeo, satinMetalMat);
+      dome.position.y = 0.46;
+      dome.castShadow = true;
+      token.add(dome);
 
-      // Spherical Head
-      const headGeo = new THREE.SphereGeometry(0.25, 32, 32);
-      const head = new THREE.Mesh(headGeo, avatarMat);
-      head.position.y = 0.78;
-      head.castShadow = true;
-      char.add(head);
-
-      char.lookAt(0, 0.6, 0);
-      avatarsGroup.add(char);
-      charactersRef.current.push(char);
-    });
-
-    // -------------------------------------------------------------
-    // 8. THREE FLOATING GLOSS BADGES WITH DOTTED CONNECTION PATH
-    // Left (Rupee ₹), Center (Group Icon), Right (Pie/Analytics)
-    // -------------------------------------------------------------
-    const badgesGroup = new THREE.Group();
-    worldGroup.add(badgesGroup);
-    floatingBadgesRef.current = [];
-
-    const badgesData = [
-      { type: 'rupee' as const, pos: new THREE.Vector3(-0.95, 2.15, -0.4) },
-      { type: 'group' as const, pos: new THREE.Vector3(0.02, 1.95, -0.75) },
-      { type: 'pie' as const, pos: new THREE.Vector3(1.0, 2.05, -0.3) },
-    ];
-
-    badgesData.forEach((b) => {
-      const badge = new THREE.Group();
-      badge.position.copy(b.pos);
-
-      // Rounded Card Plate
-      const cardGeo = new THREE.BoxGeometry(0.44, 0.44, 0.06);
-      const cardTex = createIconTexture(b.type);
-
-      const materials = [
-        new THREE.MeshPhysicalMaterial({ color: 0x0f172a, roughness: 0.2 }),
-        new THREE.MeshPhysicalMaterial({ color: 0x0f172a, roughness: 0.2 }),
-        new THREE.MeshPhysicalMaterial({ color: 0x0f172a, roughness: 0.2 }),
-        new THREE.MeshPhysicalMaterial({ color: 0x0f172a, roughness: 0.2 }),
-        new THREE.MeshPhysicalMaterial({
-          map: cardTex,
-          roughness: 0.15,
-          clearcoat: 0.9,
-        }),
-        new THREE.MeshPhysicalMaterial({ color: 0x0f172a, roughness: 0.2 }),
-      ];
-
-      const cardMesh = new THREE.Mesh(cardGeo, materials);
-      cardMesh.castShadow = true;
-      badge.add(cardMesh);
-
-      // Cyan Accent Glow Trim Behind Card
-      const trimGeo = new THREE.BoxGeometry(0.46, 0.46, 0.02);
-      const trimMat = new THREE.MeshStandardMaterial({
-        color: 0x0084ff,
-        emissive: 0x0084ff,
+      // Subtle Precision Cyan Ring Inset on Base
+      const ringInsetGeo = new THREE.TorusGeometry(0.19, 0.006, 16, 32);
+      const ringInsetMat = new THREE.MeshStandardMaterial({
+        color: 0x0ea5e9,
+        emissive: 0x0ea5e9,
         emissiveIntensity: 0.8,
       });
-      const trimMesh = new THREE.Mesh(trimGeo, trimMat);
-      trimMesh.position.z = -0.025;
-      badge.add(trimMesh);
+      const ringInset = new THREE.Mesh(ringInsetGeo, ringInsetMat);
+      ringInset.rotation.x = Math.PI / 2;
+      ringInset.position.y = 0.05;
+      token.add(ringInset);
 
-      badge.lookAt(0, 2.3, 5.0);
-      badgesGroup.add(badge);
-      floatingBadgesRef.current.push(badge);
+      tokensGroup.add(token);
+      tokenMeshes.push(token);
+      personTokensRef.current.push(token);
     });
 
-    // Elegant Dotted Connecting Curve Between Badges
-    const curvePoints = [
-      new THREE.Vector3(-1.3, 1.85, -0.3),
-      new THREE.Vector3(-0.95, 2.15, -0.4),
-      new THREE.Vector3(-0.45, 2.25, -0.6),
-      new THREE.Vector3(0.02, 1.95, -0.75),
-      new THREE.Vector3(0.5, 2.18, -0.55),
-      new THREE.Vector3(1.0, 2.05, -0.3),
-      new THREE.Vector3(1.35, 1.75, -0.2),
-    ];
-    const curve = new THREE.CatmullRomCurve3(curvePoints);
+    // -------------------------------------------------------------
+    // 8. VALUE PARTICLES & CHOREOGRAPHED PHYSICAL STORY LOOP
+    // Story Cycle:
+    // Phase 1 (Imbalance) -> Phase 2 (Value Transfer A -> B) ->
+    // Phase 3 (Settlement & Alignment) -> Phase 4 (Equilibrium Breath)
+    // -------------------------------------------------------------
+    const particlesGroup = new THREE.Group();
+    worldGroup.add(particlesGroup);
+    valueParticlesRef.current = [];
 
-    // Glowing Particle Dots along the curve
-    const dotGeo = new THREE.SphereGeometry(0.024, 16, 16);
-    const dotMat = new THREE.MeshBasicMaterial({ color: 0x38bdf8 });
-    const pointsCount = 28;
-    for (let i = 0; i <= pointsCount; i++) {
-      const pt = curve.getPoint(i / pointsCount);
-      const dot = new THREE.Mesh(dotGeo, dotMat);
-      dot.position.copy(pt);
-      worldGroup.add(dot);
-    }
-
-    // Ambient floating glow particles (Blue, Emerald, Purple)
-    const particleColors = [0x00e5ff, 0x10b981, 0xa855f7, 0x38bdf8];
-    const particleGeo = new THREE.SphereGeometry(0.038, 16, 16);
-    const particleMeshes: THREE.Mesh[] = [];
-
-    const pPositions = [
-      new THREE.Vector3(-1.45, 1.7, 0.4),
-      new THREE.Vector3(-0.25, 2.6, -0.5),
-      new THREE.Vector3(1.4, 1.9, 0.2),
-      new THREE.Vector3(0.8, 2.45, -0.8),
-      new THREE.Vector3(-0.8, 1.4, 1.1),
-    ];
-
-    pPositions.forEach((pos, idx) => {
-      const col = particleColors[idx % particleColors.length]!;
-      const pMat = new THREE.MeshStandardMaterial({
-        color: col,
-        emissive: col,
-        emissiveIntensity: 1.8,
-      });
-      const pMesh = new THREE.Mesh(particleGeo, pMat);
-      pMesh.position.copy(pos);
-      worldGroup.add(pMesh);
-      particleMeshes.push(pMesh);
+    const pGeo = new THREE.SphereGeometry(0.032, 16, 16);
+    const pMat = new THREE.MeshStandardMaterial({
+      color: 0x38bdf8,
+      emissive: 0x38bdf8,
+      emissiveIntensity: 2.2,
     });
+
+    const particle1 = new THREE.Mesh(pGeo, pMat);
+    const particle2 = new THREE.Mesh(pGeo, pMat);
+    const particle3 = new THREE.Mesh(pGeo, pMat);
+    particle1.visible = false;
+    particle2.visible = false;
+    particle3.visible = false;
+
+    particlesGroup.add(particle1, particle2, particle3);
+    valueParticlesRef.current = [particle1, particle2, particle3];
+
+    // Master Timeline
+    const tl = gsap.timeline({ repeat: -1, repeatDelay: 1.2 });
+    timelineRef.current = tl;
+
+    const tokenA = tokenMeshes[0]!;
+    const tokenB = tokenMeshes[1]!;
+    const tokenC = tokenMeshes[2]!;
+
+    // === PHASE 1: IMBALANCE (0s - 1.2s) ===
+    // Initial state: Person A has paid for Person B & C
+    tl.to(tokenA.position, { y: 0.24, duration: 1.0, ease: 'power2.inOut' }, 0);
+    tl.to(tokenB.position, { y: 0.02, duration: 1.0, ease: 'power2.inOut' }, 0);
+    tl.to(tokenC.position, { y: 0.04, duration: 1.0, ease: 'power2.inOut' }, 0);
+    tl.to(coreGroup.rotation, { z: -0.12, x: 0.06, duration: 1.0, ease: 'power2.inOut' }, 0);
+
+    // === PHASE 2: TRANSACTION & VALUE TRANSFER (1.2s - 2.8s) ===
+    // Value particles travel smoothly from Token B -> Token A via curved bezier trajectory
+    const posA = tokenA.position;
+    const posB = tokenB.position;
+    const posC = tokenC.position;
+
+    tl.call(() => {
+      particle1.visible = true;
+      particle2.visible = true;
+      particle3.visible = true;
+    }, [], 1.2);
+
+    // Particle 1 & 2: B -> A
+    tl.fromTo(
+      particle1.position,
+      { x: posB.x, y: posB.y + 0.45, z: posB.z },
+      { x: posA.x, y: posA.y + 0.45, z: posA.z, duration: 1.2, ease: 'power2.inOut' },
+      1.2
+    );
+    tl.fromTo(
+      particle2.position,
+      { x: posB.x, y: posB.y + 0.48, z: posB.z },
+      { x: posA.x, y: posA.y + 0.48, z: posA.z, duration: 1.2, delay: 0.15, ease: 'power2.inOut' },
+      1.2
+    );
+
+    // Particle 3: C -> A
+    tl.fromTo(
+      particle3.position,
+      { x: posC.x, y: posC.y + 0.45, z: posC.z },
+      { x: posA.x, y: posA.y + 0.45, z: posA.z, duration: 1.2, delay: 0.25, ease: 'power2.inOut' },
+      1.2
+    );
+
+    // === PHASE 3: SETTLEMENT & EQUILIBRIUM (2.4s - 3.8s) ===
+    // All tokens align to uniform balanced height, core self-levels
+    tl.to(tokenA.position, { y: 0.12, duration: 1.2, ease: 'back.out(1.5)' }, 2.4);
+    tl.to(tokenB.position, { y: 0.12, duration: 1.2, ease: 'back.out(1.5)' }, 2.4);
+    tl.to(tokenC.position, { y: 0.12, duration: 1.2, ease: 'back.out(1.5)' }, 2.4);
+
+    tl.to(coreGroup.rotation, { z: 0, x: 0, duration: 1.2, ease: 'back.out(1.8)' }, 2.4);
+    tl.to(innerRing.rotation, { z: Math.PI, duration: 1.4, ease: 'power2.inOut' }, 2.4);
+
+    tl.call(() => {
+      particle1.visible = false;
+      particle2.visible = false;
+      particle3.visible = false;
+    }, [], 3.8);
+
+    // === PHASE 4: EQUILIBRIUM BREATH (3.8s - 5.0s) ===
+    // Subtle float pause
+    tl.to(coreMesh.rotation, { y: '+=1.57', duration: 1.2, ease: 'power1.inOut' }, 3.8);
 
     onSceneReady?.();
 
     // -------------------------------------------------------------
-    // 9. SMOOTH CONTINUOUS TICKER ANIMATION LOOP
+    // 9. CONTINUOUS AMBIENT TICKER LOOP
     // -------------------------------------------------------------
     let clock = new THREE.Clock();
 
@@ -496,35 +450,24 @@ export const SettleWorldScene: React.FC<SettleWorldSceneProps> = ({
       reqIdRef.current = requestAnimationFrame(animate);
       const elapsed = clock.getElapsedTime();
 
-      // Smooth central orb levitation & subtle breathing
+      // Subtle central core floating levitation
       if (coreGroup) {
-        coreGroup.position.y = 1.1 + Math.sin(elapsed * 2.2) * 0.045;
-        coreGroup.rotation.y = elapsed * 0.45;
-      }
-
-      // Floating badges gentle bobbing
-      floatingBadgesRef.current.forEach((badge, idx) => {
-        badge.position.y = badgesData[idx]!.pos.y + Math.sin(elapsed * 2.0 + idx * 1.5) * 0.035;
-      });
-
-      // Neon Ring subtle pulse
-      if (neonRingMat) {
-        neonRingMat.emissiveIntensity = 2.4 + Math.sin(elapsed * 3.0) * 0.4;
+        coreGroup.position.y = 0.72 + Math.sin(elapsed * 1.6) * 0.025;
+        outerRing.rotation.y = elapsed * 0.25;
       }
 
       // Parallax mouse responsiveness
-      const targetCamX = mousePos.current.x * 0.35;
-      const targetCamY = 3.4 + mousePos.current.y * 0.25;
-      camera.position.x += (targetCamX - camera.position.x) * 0.05;
-      camera.position.y += (targetCamY - camera.position.y) * 0.05;
-      camera.lookAt(0, 0.7, 0);
+      const targetCamX = mousePos.current.x * 0.25;
+      const targetCamY = 2.6 + mousePos.current.y * 0.18;
+      camera.position.x += (targetCamX - camera.position.x) * 0.04;
+      camera.position.y += (targetCamY - camera.position.y) * 0.04;
+      camera.lookAt(0, 0.3, 0);
 
       renderer.render(scene, camera);
     };
 
     animate();
 
-    // Cleanup
     return () => {
       if (reqIdRef.current) cancelAnimationFrame(reqIdRef.current);
       container.removeEventListener('mousemove', handlePointerMove);
@@ -539,7 +482,7 @@ export const SettleWorldScene: React.FC<SettleWorldSceneProps> = ({
         ref={containerRef}
         style={{
           width: '100%',
-          height: isDesktop ? 480 : isTablet ? 380 : 320,
+          height: isDesktop ? 340 : isTablet ? 300 : 270,
           position: 'relative',
           cursor: 'grab',
         }}
