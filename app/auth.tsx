@@ -348,14 +348,14 @@ export default function LoginScreen() {
             {/* Footer: Sign Up Switch */}
             <View style={styles.footerRow}>
               <Text variant="bodySecondary" style={{ color: theme.colors.textSecondary }}>
-                Don't have an account?{' '}
+                New To Settle?{' '}
               </Text>
               <Pressable
                 onPress={() => router.push(`/auth/signup${returnParam}` as any)}
                 hitSlop={8}
               >
                 <Text variant="bodySecondary" weight="bold" style={{ color: theme.colors.primary }}>
-                  Sign up
+                  Create your account
                 </Text>
               </Pressable>
             </View>

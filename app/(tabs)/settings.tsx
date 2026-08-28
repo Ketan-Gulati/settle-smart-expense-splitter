@@ -99,7 +99,7 @@ export default function SettingsScreen() {
         {/* Application Info */}
         <Surface variant="subtle" style={styles.infoCard}>
           <Text variant="label" color={theme.colors.textMuted}>
-            SETTLE PRO
+            SETTLE
           </Text>
           <Text variant="caption" color={theme.colors.textSecondary}>
             Version 1.0.0 · Smart Debt Simplification Engine
