@@ -43,17 +43,102 @@ export default function GroupOverviewScreen() {
     try {
       setLoading(true);
       setError(null);
-      const [user, groupData, expList, groupBals] = await Promise.all([
-        SettleApiService.getMe(),
-        SettleApiService.getGroupDetails(id),
-        SettleApiService.getGroupExpenses(id),
-        SettleApiService.getGroupBalances(id),
-      ]);
 
-      setCurrentUser(user);
-      setGroup(groupData);
-      setExpenses(expList);
-      setBalances(groupBals);
+      // Attempt live backend API call first
+      try {
+        const [user, groupData, expList, groupBals] = await Promise.all([
+          SettleApiService.getMe(),
+          SettleApiService.getGroupDetails(id),
+          SettleApiService.getGroupExpenses(id),
+          SettleApiService.getGroupBalances(id),
+        ]);
+
+        setCurrentUser(user);
+        setGroup(groupData);
+        setExpenses(expList);
+        setBalances(groupBals);
+        return;
+      } catch (backendErr) {
+        // If not found on backend (e.g. local dev SQLite seed group), fall back gracefully to local SQLite database
+        const { groupRepository } = await import('@/repositories/groupRepository');
+        const { expenseRepository } = await import('@/repositories/expenseRepository');
+        const { userRepository } = await import('@/repositories/userRepository');
+        const { balanceService } = await import('@/services/balanceService');
+
+        const localGroup = await groupRepository.findById(id);
+        if (localGroup) {
+          const defaultUser = await userRepository.getOrCreateDefaultUser();
+          const localExpenses = await expenseRepository.findByGroup(id);
+          const balRes = await balanceService.getGroupBalances(id);
+
+          const mappedExpenses: ExpenseDTO[] = localExpenses.map((e) => {
+            const payerName = localGroup.members?.find((m) => m.id === e.payerId)?.name || 'Member';
+            return {
+              id: e.id,
+              groupId: e.groupId,
+              groupName: localGroup.name,
+              description: e.description,
+              amountMinor: e.amountMinor,
+              currency: e.currency || 'INR',
+              paidByUserId: e.payerId,
+              paidByUserName: payerName,
+              splitMethod: e.splitMethod || 'EQUAL',
+              category: 'GENERAL',
+              notes: null,
+              createdAt: e.createdAt,
+              splits: e.splits.map((s) => ({
+                userId: s.userId,
+                userName: localGroup.members?.find((m) => m.id === s.userId)?.name || 'Member',
+                amountMinor: s.amountMinor,
+              })),
+            };
+          });
+
+          const memberBalances = (localGroup.members || []).map((m) => ({
+            userId: m.id,
+            name: m.name,
+            avatarUrl: m.avatar || null,
+            netBalanceMinor: balRes.success ? (balRes.data.userBalances[m.id]?.netBalanceMinor || 0) : 0,
+          }));
+
+          setCurrentUser({
+            id: defaultUser.id,
+            name: defaultUser.name,
+            email: defaultUser.email || 'user@settle.app',
+            avatarUrl: defaultUser.avatar || null,
+          });
+
+          setGroup({
+            id: localGroup.id,
+            name: localGroup.name,
+            groupType: (localGroup.type?.toUpperCase() as any) || 'OTHER',
+            currency: localGroup.currency || 'INR',
+            createdBy: localGroup.ownerId,
+            createdAt: localGroup.createdAt,
+            isArchived: !!localGroup.archivedAt,
+            memberCount: localGroup.members?.length || 1,
+            members: (localGroup.members || []).map((m) => ({
+              id: m.id,
+              userId: m.id,
+              name: m.name,
+              email: m.email || undefined,
+              avatarUrl: m.avatar || null,
+              role: m.id === localGroup.ownerId ? 'OWNER' : 'MEMBER',
+              joinedAt: localGroup.createdAt,
+            })),
+          });
+
+          setExpenses(mappedExpenses);
+          setBalances({
+            groupId: id,
+            userNetBalanceMinor: balRes.success ? (balRes.data.userBalances[defaultUser.id]?.netBalanceMinor || 0) : 0,
+            members: memberBalances,
+          });
+          return;
+        }
+
+        throw backendErr;
+      }
     } catch (err: any) {
       console.error('Failed to load group:', err);
       setError(err?.message || 'Group not found or access denied.');
