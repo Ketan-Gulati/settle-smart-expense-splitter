@@ -31,6 +31,7 @@ export default function GroupOverviewScreen() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [inviteModalVisible, setInviteModalVisible] = useState(false);
+  const [membersModalVisible, setMembersModalVisible] = useState(false);
   const [copiedCode, setCopiedCode] = useState(false);
   const [regeneratingInvite, setRegeneratingInvite] = useState(false);
 
@@ -259,26 +260,35 @@ export default function GroupOverviewScreen() {
 
           {/* Member Avatar Stack & Invite button */}
           <View style={styles.avatarRowWithInvite}>
-            <View style={styles.avatarStack}>
-              {group.members?.slice(0, 4).map((member, idx) => (
-                <View
-                  key={member.id}
-                  style={[
-                    styles.avatarWrapper,
-                    { marginLeft: idx === 0 ? 0 : -10, zIndex: 10 - idx },
-                  ]}
-                >
-                  <Avatar name={member.name} size="medium" />
-                </View>
-              ))}
-              {(group.members?.length || 0) > 4 && (
-                <View style={[styles.moreAvatar, { marginLeft: -10, zIndex: 5 }]}>
-                  <Text variant="caption" weight="bold" color={theme.colors.textSecondary}>
-                    +{(group.members?.length || 0) - 4}
-                  </Text>
-                </View>
-              )}
-            </View>
+            <Pressable
+              onPress={() => setMembersModalVisible(true)}
+              style={styles.avatarStackContainer}
+              hitSlop={6}
+            >
+              <View style={styles.avatarStack}>
+                {group.members?.slice(0, 4).map((member, idx) => (
+                  <View
+                    key={member.id}
+                    style={[
+                      styles.avatarWrapper,
+                      { marginLeft: idx === 0 ? 0 : -10, zIndex: 10 - idx },
+                    ]}
+                  >
+                    <Avatar name={member.name} size="medium" />
+                  </View>
+                ))}
+                {(group.members?.length || 0) > 4 && (
+                  <View style={[styles.moreAvatar, { marginLeft: -10, zIndex: 5 }]}>
+                    <Text variant="caption" weight="bold" color={theme.colors.textSecondary}>
+                      +{(group.members?.length || 0) - 4}
+                    </Text>
+                  </View>
+                )}
+              </View>
+              <Text variant="caption" weight="semibold" color={theme.colors.textSecondary} style={{ marginLeft: 8 }}>
+                View all ({group.members?.length || group.memberCount || 1})
+              </Text>
+            </Pressable>
 
             <Pressable
               onPress={() => setInviteModalVisible(true)}
@@ -600,6 +610,97 @@ export default function GroupOverviewScreen() {
           </Surface>
         </View>
       </Modal>
+
+      {/* Members Modal (Full Names, Avatars, Roles) */}
+      <Modal visible={membersModalVisible} animationType="slide" transparent>
+        <View style={[styles.modalOverlay, { backgroundColor: theme.colors.overlay }]}>
+          <Surface variant="elevated" style={styles.membersModalContent}>
+            <View style={styles.membersModalHeader}>
+              <View>
+                <Text variant="headline" style={{ fontWeight: '700' }}>
+                  Group Members
+                </Text>
+                <Text variant="caption" color={theme.colors.textMuted}>
+                  {group.members?.length || group.memberCount || 1} people in this group
+                </Text>
+              </View>
+              <Pressable
+                onPress={() => setMembersModalVisible(false)}
+                style={[styles.closeBtn, { backgroundColor: theme.colors.surfaceSubtle }]}
+                hitSlop={8}
+              >
+                <Text variant="body" weight="bold" color={theme.colors.textMuted}>
+                  ✕
+                </Text>
+              </Pressable>
+            </View>
+
+            <ScrollView style={{ maxHeight: 380 }} showsVerticalScrollIndicator={false}>
+              <View style={styles.membersList}>
+                {group.members && group.members.length > 0 ? (
+                  group.members.map((member) => {
+                    const isOwner = member.role === 'OWNER' || member.userId === group.createdBy;
+                    const isMe = member.userId === currentUser?.id;
+
+                    return (
+                      <View
+                        key={member.id}
+                        style={[
+                          styles.memberItemRow,
+                          { borderBottomColor: theme.colors.borderSubtle },
+                        ]}
+                      >
+                        <Avatar name={member.name} size="medium" />
+                        <View style={styles.memberItemDetails}>
+                          <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+                            <Text variant="body" weight="semibold" color={theme.colors.textPrimary}>
+                              {member.name}
+                            </Text>
+                            {isMe && (
+                              <Text variant="caption" color={theme.colors.primary} weight="bold">
+                                (You)
+                              </Text>
+                            )}
+                          </View>
+                          {member.email && (
+                            <Text variant="caption" color={theme.colors.textMuted}>
+                              {member.email}
+                            </Text>
+                          )}
+                        </View>
+                        {isOwner && (
+                          <View
+                            style={[
+                              styles.roleBadge,
+                              { backgroundColor: theme.colors.primarySubtle },
+                            ]}
+                          >
+                            <Text variant="caption" weight="bold" color={theme.colors.primary}>
+                              Owner
+                            </Text>
+                          </View>
+                        )}
+                      </View>
+                    );
+                  })
+                ) : (
+                  <Text variant="body" color={theme.colors.textMuted} align="center" style={{ paddingVertical: 20 }}>
+                    No members found.
+                  </Text>
+                )}
+              </View>
+            </ScrollView>
+
+            <Button
+              title="Done"
+              variant="primary"
+              size="large"
+              onPress={() => setMembersModalVisible(false)}
+              style={{ marginTop: 8 }}
+            />
+          </Surface>
+        </View>
+      </Modal>
     </View>
   );
 }
@@ -782,5 +883,43 @@ const styles = StyleSheet.create({
     borderTopColor: '#F1F5F9',
     paddingTop: 14,
     marginTop: 4,
+  },
+  avatarStackContainer: {
+    flexDirection: 'row',
+    alignItems: 'center',
+  },
+  membersModalContent: {
+    borderTopLeftRadius: 24,
+    borderTopRightRadius: 24,
+    padding: 24,
+    gap: 16,
+    maxWidth: 440,
+    width: '100%',
+    alignSelf: 'center',
+  },
+  membersModalHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    marginBottom: 8,
+  },
+  membersList: {
+    gap: 4,
+  },
+  memberItemRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingVertical: 12,
+    borderBottomWidth: 1,
+    gap: 14,
+  },
+  memberItemDetails: {
+    flex: 1,
+    gap: 2,
+  },
+  roleBadge: {
+    paddingHorizontal: 8,
+    paddingVertical: 4,
+    borderRadius: 8,
   },
 });
