@@ -31,24 +31,62 @@ export default function GroupsScreen() {
   const loadGroups = useCallback(async () => {
     try {
       setLoading(true);
-      const [user, groups] = await Promise.all([
-        SettleApiService.getMe(),
-        SettleApiService.getGroups(),
-      ]);
-      setCurrentUser(user);
+      try {
+        const [user, groups] = await Promise.all([
+          SettleApiService.getMe(),
+          SettleApiService.getGroups(),
+        ]);
+        setCurrentUser(user);
 
-      const items: GroupListItem[] = await Promise.all(
-        groups.map(async (group) => {
-          try {
-            const balRes = await SettleApiService.getGroupBalances(group.id);
-            return { group, netBalanceMinor: balRes.userNetBalanceMinor };
-          } catch {
-            return { group, netBalanceMinor: 0 };
-          }
-        })
-      );
+        const items: GroupListItem[] = await Promise.all(
+          groups.map(async (group) => {
+            try {
+              const balRes = await SettleApiService.getGroupBalances(group.id);
+              return { group, netBalanceMinor: balRes.userNetBalanceMinor };
+            } catch {
+              return { group, netBalanceMinor: 0 };
+            }
+          })
+        );
 
-      setGroupItems(items);
+        setGroupItems(items);
+        return;
+      } catch {
+        // Fallback to local SQLite repository
+        const { groupRepository } = await import('@/repositories/groupRepository');
+        const { userRepository } = await import('@/repositories/userRepository');
+        const { balanceService } = await import('@/services/balanceService');
+
+        const defaultUser = await userRepository.getOrCreateDefaultUser();
+        setCurrentUser({
+          id: defaultUser.id,
+          name: defaultUser.name,
+          email: defaultUser.email || 'user@settle.app',
+          avatarUrl: defaultUser.avatar || null,
+        });
+
+        const localGroups = await groupRepository.findAll();
+        const items: GroupListItem[] = await Promise.all(
+          localGroups.map(async (g) => {
+            const balRes = await balanceService.getGroupBalances(g.id);
+            const userNet = balRes.success ? (balRes.data.userBalances[defaultUser.id]?.netBalanceMinor || 0) : 0;
+            return {
+              group: {
+                id: g.id,
+                name: g.name,
+                currency: g.currency,
+                createdBy: g.ownerId,
+                createdAt: g.createdAt,
+                isArchived: !!g.archivedAt,
+                memberCount: g.members?.length || 1,
+              },
+              netBalanceMinor: userNet,
+            };
+          })
+        );
+
+        setGroupItems(items);
+      }
     } catch (err) {
       console.error('Failed to load groups:', err);
     } finally {

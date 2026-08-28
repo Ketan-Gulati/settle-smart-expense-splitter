@@ -23,12 +23,54 @@ export default function ActivityScreen() {
   const loadActivities = useCallback(async () => {
     try {
       setLoading(true);
-      const [user, feed] = await Promise.all([
-        SettleApiService.getMe(),
-        SettleApiService.getActivityFeed(),
-      ]);
-      setUserName(user.name);
-      setActivities(feed);
+      try {
+        const [user, feed] = await Promise.all([
+          SettleApiService.getMe(),
+          SettleApiService.getActivityFeed(),
+        ]);
+        setUserName(user.name);
+        setActivities(feed);
+        return;
+      } catch {
+        // Fallback to local SQLite repository
+        const { expenseRepository } = await import('@/repositories/expenseRepository');
+        const { groupRepository } = await import('@/repositories/groupRepository');
+        const { userRepository } = await import('@/repositories/userRepository');
+
+        const defaultUser = await userRepository.getOrCreateDefaultUser();
+        setUserName(defaultUser.name);
+
+        const groups = await groupRepository.findAll();
+        const groupMap = new Map(groups.map((g) => [g.id, g.name]));
+
+        const allExpenses: any[] = [];
+        for (const g of groups) {
+          const exps = await expenseRepository.findByGroup(g.id);
+          allExpenses.push(...exps);
+        }
+
+        allExpenses.sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
+
+        const localActivities: ActivityEventDTO[] = allExpenses.slice(0, 30).map((e) => {
+          const isPayer = e.payerId === defaultUser.id;
+          const userSplit = e.splits.find((s: any) => s.userId === defaultUser.id)?.amountMinor || 0;
+          const userShareMinor = isPayer ? e.amountMinor - userSplit : -userSplit;
+          return {
+            id: `act_${e.id}`,
+            type: 'EXPENSE',
+            groupId: e.groupId,
+            groupName: groupMap.get(e.groupId) || 'Group',
+            title: e.description,
+            timestamp: e.date,
+            payerName: isPayer ? 'You' : 'Member',
+            totalAmountMinor: e.amountMinor,
+            userShareMinor,
+            currency: e.currency || 'INR',
+          };
+        });
+
+        setActivities(localActivities);
+      }
     } catch (err) {
       console.error('Failed to load activities:', err);
     } finally {

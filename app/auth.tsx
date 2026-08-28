@@ -201,86 +201,177 @@ export default function LoginScreen() {
             )}
 
             {/* Form Fields */}
-            <View style={styles.formGroup}>
-              <Input
-                label="Email"
-                placeholder="you@example.com"
-                keyboardType="email-address"
-                autoCapitalize="none"
-                autoCorrect={false}
-                value={email}
-                onFocus={() => setInteractionState('email_focused')}
-                onBlur={() => setInteractionState('idle')}
-                onChangeText={(val) => {
-                  setEmail(val);
-                  if (error) setError(null);
+            {Platform.OS === 'web' ? (
+              <form
+                onSubmit={(e) => {
+                  e.preventDefault();
+                  handlePasswordLogin();
                 }}
-                containerStyle={styles.inputContainer}
-              />
-
-              <View style={styles.passwordWrapper}>
+                style={{ width: '100%', display: 'flex', flexDirection: 'column', gap: '16px' }}
+              >
                 <Input
-                  label="Password"
-                  placeholder="Enter your password"
-                  secureTextEntry={!showPassword}
+                  label="Email"
+                  placeholder="you@example.com"
+                  keyboardType="email-address"
                   autoCapitalize="none"
                   autoCorrect={false}
-                  value={password}
-                  onFocus={() => setInteractionState('password_focused')}
+                  value={email}
+                  onFocus={() => setInteractionState('email_focused')}
                   onBlur={() => setInteractionState('idle')}
                   onChangeText={(val) => {
-                    setPassword(val);
+                    setEmail(val);
                     if (error) setError(null);
                   }}
                   containerStyle={styles.inputContainer}
-                  iconRight={
-                    <Pressable
-                      onPress={() => setShowPassword(!showPassword)}
-                      hitSlop={8}
-                      style={styles.eyeBtn}
+                />
+
+                <View style={styles.passwordWrapper}>
+                  <Input
+                    label="Password"
+                    placeholder="Enter your password"
+                    secureTextEntry={!showPassword}
+                    autoCapitalize="none"
+                    autoCorrect={false}
+                    value={password}
+                    onFocus={() => setInteractionState('password_focused')}
+                    onBlur={() => setInteractionState('idle')}
+                    onChangeText={(val) => {
+                      setPassword(val);
+                      if (error) setError(null);
+                    }}
+                    containerStyle={styles.inputContainer}
+                    iconRight={
+                      <Pressable
+                        onPress={() => setShowPassword(!showPassword)}
+                        hitSlop={8}
+                        style={styles.eyeBtn}
+                      >
+                        <Text variant="caption" weight="semibold" style={{ color: theme.colors.textMuted }}>
+                          {showPassword ? 'Hide' : 'Show'}
+                        </Text>
+                      </Pressable>
+                    }
+                  />
+                  <Pressable
+                    onPress={() => router.push(`/auth/forgot-password${returnParam}` as any)}
+                    style={styles.forgotBtn}
+                    hitSlop={6}
+                  >
+                    <Text variant="caption" weight="medium" style={{ color: theme.colors.primary }}>
+                      Forgot password?
+                    </Text>
+                  </Pressable>
+                </View>
+
+                {/* Primary CTA: Sign In */}
+                <Pressable
+                  disabled={loading || googleLoading}
+                  onPress={handlePasswordLogin}
+                  style={({ pressed }) => [
+                    styles.primaryBtn,
+                    {
+                      backgroundColor: theme.colors.primary,
+                      opacity: loading || googleLoading ? 0.7 : pressed ? 0.88 : 1,
+                    },
+                  ]}
+                >
+                  {loading ? (
+                    <ActivityIndicator size="small" color={theme.colors.primaryForeground} />
+                  ) : (
+                    <Text
+                      variant="body"
+                      weight="bold"
+                      style={{ color: theme.colors.primaryForeground }}
                     >
-                      <Text variant="caption" weight="semibold" style={{ color: theme.colors.textMuted }}>
-                        {showPassword ? 'Hide' : 'Show'}
+                      Sign In
+                    </Text>
+                  )}
+                </Pressable>
+              </form>
+            ) : (
+              <>
+                <View style={styles.formGroup}>
+                  <Input
+                    label="Email"
+                    placeholder="you@example.com"
+                    keyboardType="email-address"
+                    autoCapitalize="none"
+                    autoCorrect={false}
+                    value={email}
+                    onFocus={() => setInteractionState('email_focused')}
+                    onBlur={() => setInteractionState('idle')}
+                    onChangeText={(val) => {
+                      setEmail(val);
+                      if (error) setError(null);
+                    }}
+                    containerStyle={styles.inputContainer}
+                  />
+
+                  <View style={styles.passwordWrapper}>
+                    <Input
+                      label="Password"
+                      placeholder="Enter your password"
+                      secureTextEntry={!showPassword}
+                      autoCapitalize="none"
+                      autoCorrect={false}
+                      value={password}
+                      onFocus={() => setInteractionState('password_focused')}
+                      onBlur={() => setInteractionState('idle')}
+                      onChangeText={(val) => {
+                        setPassword(val);
+                        if (error) setError(null);
+                      }}
+                      containerStyle={styles.inputContainer}
+                      iconRight={
+                        <Pressable
+                          onPress={() => setShowPassword(!showPassword)}
+                          hitSlop={8}
+                          style={styles.eyeBtn}
+                        >
+                          <Text variant="caption" weight="semibold" style={{ color: theme.colors.textMuted }}>
+                            {showPassword ? 'Hide' : 'Show'}
+                          </Text>
+                        </Pressable>
+                      }
+                    />
+                    <Pressable
+                      onPress={() => router.push(`/auth/forgot-password${returnParam}` as any)}
+                      style={styles.forgotBtn}
+                      hitSlop={6}
+                    >
+                      <Text variant="caption" weight="medium" style={{ color: theme.colors.primary }}>
+                        Forgot password?
                       </Text>
                     </Pressable>
-                  }
-                />
-                <Pressable
-                  onPress={() => router.push(`/auth/forgot-password${returnParam}` as any)}
-                  style={styles.forgotBtn}
-                  hitSlop={6}
-                >
-                  <Text variant="caption" weight="medium" style={{ color: theme.colors.primary }}>
-                    Forgot password?
-                  </Text>
-                </Pressable>
-              </View>
-            </View>
+                  </View>
+                </View>
 
-            {/* Primary CTA: Sign In */}
-            <Pressable
-              disabled={loading || googleLoading}
-              onPress={handlePasswordLogin}
-              style={({ pressed }) => [
-                styles.primaryBtn,
-                {
-                  backgroundColor: theme.colors.primary,
-                  opacity: loading || googleLoading ? 0.7 : pressed ? 0.88 : 1,
-                },
-              ]}
-            >
-              {loading ? (
-                <ActivityIndicator size="small" color={theme.colors.primaryForeground} />
-              ) : (
-                <Text
-                  variant="body"
-                  weight="bold"
-                  style={{ color: theme.colors.primaryForeground }}
+                {/* Primary CTA: Sign In */}
+                <Pressable
+                  disabled={loading || googleLoading}
+                  onPress={handlePasswordLogin}
+                  style={({ pressed }) => [
+                    styles.primaryBtn,
+                    {
+                      backgroundColor: theme.colors.primary,
+                      opacity: loading || googleLoading ? 0.7 : pressed ? 0.88 : 1,
+                    },
+                  ]}
                 >
-                  Sign In
-                </Text>
-              )}
-            </Pressable>
+                  {loading ? (
+                    <ActivityIndicator size="small" color={theme.colors.primaryForeground} />
+                  ) : (
+                    <Text
+                      variant="body"
+                      weight="bold"
+                      style={{ color: theme.colors.primaryForeground }}
+                    >
+                      Sign In
+                    </Text>
+                  )}
+                </Pressable>
+              </>
+            )}
 
             {/* Divider */}
             <View style={styles.dividerRow}>
