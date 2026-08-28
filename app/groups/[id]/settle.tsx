@@ -158,8 +158,8 @@ export default function SmartSettlementScreen() {
         title={group.name}
         onBackPress={() => router.back()}
         rightAction={
-          <Pressable onPress={() => router.push('/settings' as any)}>
-            <Text style={{ fontSize: 20 }}>⚙</Text>
+          <Pressable onPress={() => router.push('/menu' as any)}>
+            <Text style={{ fontSize: 20 }}>☰</Text>
           </Pressable>
         }
       />
@@ -227,29 +227,26 @@ export default function SmartSettlementScreen() {
               const creditorName = isCreditorUser ? 'You' : t.toUserName;
 
               return (
-                <Pressable
+                <SettlementPathCard
                   key={`${t.fromUserId}_${t.toUserId}_${idx}`}
-                  onPress={() => {
-                    if (isDebtorUser) {
-                      setSelectedTransfer(t);
-                      setRecordModalVisible(true);
-                    }
+                  debtorName={debtorName}
+                  creditorName={creditorName}
+                  amountMinor={t.amountMinor}
+                  currency={group.currency}
+                  isDirectPath={true}
+                  isCurrentUserDebtor={isDebtorUser}
+                  isCurrentUserCreditor={isCreditorUser}
+                  onSettlePress={() => {
+                    setSelectedTransfer(t);
+                    setRecordModalVisible(true);
                   }}
-                >
-                  <SettlementPathCard
-                    debtorName={debtorName}
-                    creditorName={creditorName}
-                    amountMinor={t.amountMinor}
-                    currency={group.currency}
-                    isDirectPath={true}
-                    explanationQuestion={
-                      isDebtorUser
-                        ? `Why am I paying ${creditorName}? (Tap to Settle)`
-                        : `Why is ${debtorName} paying ${creditorName}?`
-                    }
-                    explanationAnswer={`This direct transfer of ₹${(t.amountMinor / 100).toFixed(2)} completely settles ${debtorName}'s net balance with ${creditorName}.`}
-                  />
-                </Pressable>
+                  explanationQuestion={
+                    isDebtorUser
+                      ? `How does this settle your share with ${creditorName}?`
+                      : `Why is ${debtorName} transferring to ${creditorName}?`
+                  }
+                  explanationAnswer={`This optimized direct payment of ₹${(t.amountMinor / 100).toFixed(2)} directly zeroes out ${debtorName}'s net obligation to ${creditorName}.`}
+                />
               );
             })}
           </View>

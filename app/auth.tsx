@@ -63,10 +63,6 @@ export default function LoginScreen() {
   const formOpacity = useRef(new Animated.Value(1)).current;
   const formTranslateY = useRef(new Animated.Value(0)).current;
 
-  const handleSceneReady = () => {
-    // Scene ready
-  };
-
   const login = useAppStore((state) => state.login);
 
   const navigatePostAuth = () => {
@@ -93,16 +89,13 @@ export default function LoginScreen() {
 
     try {
       setLoading(true);
-      setInteractionState('submitting');
       await login(cleanEmail, cleanPass);
-      setInteractionState('success');
       setTimeout(() => {
         navigatePostAuth();
       }, 400);
     } catch (err: any) {
       const msg = err.message || 'Invalid email or password. Please try again.';
       setError(msg);
-      setInteractionState('idle');
     } finally {
       setLoading(false);
     }
@@ -112,7 +105,6 @@ export default function LoginScreen() {
     try {
       setGoogleLoading(true);
       setError(null);
-      setInteractionState('submitting');
       const stateParam = returnUrl ? encodeURIComponent(returnUrl) : '';
       const googleAuthUrl = `http://localhost:5000/api/v1/auth/google?state=${stateParam}`;
       if (Platform.OS === 'web' && typeof window !== 'undefined') {
@@ -123,7 +115,6 @@ export default function LoginScreen() {
     } catch {
       setError('Unable to initiate Google authentication.');
       setGoogleLoading(false);
-      setInteractionState('idle');
     }
   };
 
@@ -142,11 +133,10 @@ export default function LoginScreen() {
         showsVerticalScrollIndicator={false}
       >
         <View style={styles.contentWrapper}>
-          {/* 1. Real 3D Settle Miniature Universe (Interactive) */}
-          <SettleWorldScene
-            interactionState={interactionState}
-            onSceneReady={handleSceneReady}
-          />
+          {/* Autonomous Settlement Engine Hero Graphic with GSAP */}
+          <View style={styles.heroShowcase}>
+            <SettleWorldScene interactionState={interactionState} />
+          </View>
 
           {/* 2. Authentication Form (Smooth Orchestrated Stagger) */}
           <Animated.View
@@ -298,8 +288,6 @@ export default function LoginScreen() {
                     autoCapitalize="none"
                     autoCorrect={false}
                     value={email}
-                    onFocus={() => setInteractionState('email_focused')}
-                    onBlur={() => setInteractionState('idle')}
                     onChangeText={(val) => {
                       setEmail(val);
                       if (error) setError(null);
@@ -315,8 +303,6 @@ export default function LoginScreen() {
                       autoCapitalize="none"
                       autoCorrect={false}
                       value={password}
-                      onFocus={() => setInteractionState('password_focused')}
-                      onBlur={() => setInteractionState('idle')}
                       onChangeText={(val) => {
                         setPassword(val);
                         if (error) setError(null);
@@ -392,8 +378,6 @@ export default function LoginScreen() {
               <Pressable
                 disabled={loading || googleLoading}
                 onPress={handleGoogleAuth}
-                onHoverIn={() => setInteractionState('google_hover')}
-                onHoverOut={() => setInteractionState('idle')}
                 style={({ pressed }) => [
                   styles.secondaryBtn,
                   {
@@ -419,8 +403,6 @@ export default function LoginScreen() {
               <Pressable
                 disabled={loading || googleLoading}
                 onPress={() => router.push(`/auth/otp${returnParam}` as any)}
-                onHoverIn={() => setInteractionState('otp_hover')}
-                onHoverOut={() => setInteractionState('idle')}
                 style={({ pressed }) => [
                   styles.secondaryBtn,
                   {
@@ -470,8 +452,33 @@ const styles = StyleSheet.create({
   },
   contentWrapper: {
     width: '100%',
-    maxWidth: 420,
+    maxWidth: 460,
     alignSelf: 'center',
+  },
+  heroShowcase: {
+    width: '100%',
+    maxWidth: 460,
+    alignSelf: 'center',
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginTop: 4,
+    marginBottom: 12,
+  },
+  heroGlassCard: {
+    width: '100%',
+    height: 250,
+    borderRadius: 20,
+    backgroundColor: 'rgba(15, 23, 42, 0.65)',
+    borderWidth: 1,
+    borderColor: 'rgba(56, 189, 248, 0.25)',
+    overflow: 'hidden',
+    position: 'relative',
+    justifyContent: 'center',
+    alignItems: 'center',
+    shadowColor: '#0284C7',
+    shadowOffset: { width: 0, height: 12 },
+    shadowOpacity: 0.25,
+    shadowRadius: 24,
   },
   formSectionWrapper: {
     width: '100%',

@@ -2,7 +2,7 @@ import { useEffect, useState, useCallback } from 'react';
 import { View, ScrollView, StyleSheet, ActivityIndicator } from 'react-native';
 import { useRouter } from 'expo-router';
 import { useAppTheme } from '@/hooks/useAppTheme';
-import { AppHeader, Text, Surface, EmptyState, Button, StatusBadge } from '@/components';
+import { AppHeader, Text, Surface, EmptyState, Button, StatusBadge, NotificationSideMenu } from '@/components';
 import { SettleApiService } from '@/services/api/settleApi';
 import { GroupDTO, GroupBalancesDTO, UserDTO } from '@/services/api/types';
 import { useAppStore } from '@/store/appStore';
@@ -64,9 +64,20 @@ export default function GlobalSettleScreen() {
     return bals.members.some((m) => m.netBalanceMinor !== 0);
   });
 
+  const [sideMenuVisible, setSideMenuVisible] = useState(false);
+
   return (
     <View style={[styles.container, { backgroundColor: theme.colors.background }]}>
-      <AppHeader userName={currentUser?.name || 'You'} onSettingsPress={() => router.push('/settings' as any)} />
+      <AppHeader
+        userName={currentUser?.name || 'You'}
+        onAvatarPress={() => router.push('/profile' as any)}
+        onMenuPress={() => setSideMenuVisible(true)}
+      />
+
+      <NotificationSideMenu
+        visible={sideMenuVisible}
+        onClose={() => setSideMenuVisible(false)}
+      />
 
       <ScrollView contentContainerStyle={styles.content}>
         <View style={styles.headerTitleSection}>

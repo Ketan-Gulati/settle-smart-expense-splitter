@@ -233,7 +233,13 @@ export default function NewOrEditExpenseScreen() {
       }
 
       notifyDataChanged();
-      router.back();
+      if (router.canGoBack()) {
+        router.back();
+      } else if (selectedGroupId) {
+        router.replace(`/groups/${selectedGroupId}` as any);
+      } else {
+        router.replace('/(tabs)/groups' as any);
+      }
     } catch (err: any) {
       setError(err.message || 'Failed to save expense');
     } finally {
@@ -241,11 +247,21 @@ export default function NewOrEditExpenseScreen() {
     }
   };
 
+  const handleClose = () => {
+    if (router.canGoBack()) {
+      router.back();
+    } else if (selectedGroupId) {
+      router.replace(`/groups/${selectedGroupId}` as any);
+    } else {
+      router.replace('/(tabs)/groups' as any);
+    }
+  };
+
   return (
     <View style={[styles.container, { backgroundColor: theme.colors.background }]}>
       {/* 1. Header Bar: Close (X) + Centered Title */}
       <View style={styles.topHeader}>
-        <Pressable onPress={() => router.back()} style={styles.closeButton}>
+        <Pressable onPress={handleClose} style={styles.closeButton}>
           <Text style={styles.closeIcon}>✕</Text>
         </Pressable>
         <Text variant="headline" weight="bold">

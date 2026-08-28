@@ -151,6 +151,29 @@ export class GroupService {
       return created;
     });
 
+    // Automatically send Action Center notifications to all invited members (except creator)
+    const invitedMemberIds = (input.initialMemberUserIds || []).filter((id) => id !== creatorUserId);
+    if (invitedMemberIds.length > 0) {
+      const { NotificationService } = await import('../notifications/notification.service');
+      const creator = await prisma.user.findUnique({
+        where: { id: creatorUserId },
+        select: { name: true },
+      });
+      const creatorName = creator?.name || 'A friend';
+
+      for (const invitedId of invitedMemberIds) {
+        await NotificationService.createNotification({
+          recipientUserId: invitedId,
+          actorUserId: creatorUserId,
+          type: 'GROUP_INVITE',
+          groupId: group.id,
+          groupName: group.name,
+          title: `Group Invitation: ${group.name}`,
+          message: `${creatorName} invited you to join "${group.name}".`,
+        });
+      }
+    }
+
     const activeInvite = group.invitations[0];
 
     return {

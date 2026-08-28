@@ -39,7 +39,8 @@ export default function CreateGroupScreen() {
   const [currency, setCurrency] = useState('INR');
   const [detectingCurrency, setDetectingCurrency] = useState(false);
 
-  // Step 2: Member Selection
+  // Step 2: Friends & Member Selection
+  const [friends, setFriends] = useState<UserDTO[]>([]);
   const [searchQuery, setSearchQuery] = useState('');
   const [searchResults, setSearchResults] = useState<UserDTO[]>([]);
   const [searching, setSearching] = useState(false);
@@ -56,6 +57,10 @@ export default function CreateGroupScreen() {
       .then(setCurrentUser)
       .catch((err) => console.error('Failed to get current user:', err));
 
+    SettleApiService.getFriends()
+      .then(setFriends)
+      .catch((err) => console.error('Failed to load friends:', err));
+
     setDetectingCurrency(true);
     detectCurrencyFromIP()
       .then((curr) => {
@@ -66,27 +71,55 @@ export default function CreateGroupScreen() {
       .finally(() => setDetectingCurrency(false));
   }, []);
 
-  // Search users as user types
+  // Search friends and users as user types
   useEffect(() => {
-    if (!searchQuery.trim() || searchQuery.trim().length < 2) {
+    if (!searchQuery.trim()) {
       setSearchResults([]);
+      return;
+    }
+
+    const q = searchQuery.trim().toLowerCase().replace(/^@/, '');
+    // 1. Immediately match existing friends by name, email, or settleId
+    const friendMatches = friends.filter(
+      (f) =>
+        f.name.toLowerCase().includes(q) ||
+        (f.email && f.email.toLowerCase().includes(q)) ||
+        (f.settleId && f.settleId.toLowerCase().includes(q))
+    );
+
+    // If query is not an email or settleId (no '@', no '_', and not in friends), only show friend matches
+    const isDirectEmail = q.includes('@');
+    const isSettleIdPattern = q.includes('_') || q.length >= 4;
+
+    if (!isDirectEmail && !isSettleIdPattern) {
+      setSearchResults(friendMatches);
       return;
     }
 
     const timer = setTimeout(async () => {
       try {
         setSearching(true);
-        const results = await SettleApiService.searchUsers(searchQuery.trim());
-        setSearchResults(results);
+        const serverResults = await SettleApiService.searchUsers(q);
+        // Deduplicate between friends and server results
+        const seenIds = new Set(friendMatches.map((f) => f.id));
+        const combined = [...friendMatches];
+        for (const u of serverResults) {
+          if (!seenIds.has(u.id)) {
+            seenIds.add(u.id);
+            combined.push(u);
+          }
+        }
+        setSearchResults(combined);
       } catch (err) {
         console.error('Search error:', err);
+        setSearchResults(friendMatches);
       } finally {
         setSearching(false);
       }
-    }, 250);
+    }, 200);
 
     return () => clearTimeout(timer);
-  }, [searchQuery]);
+  }, [searchQuery, friends]);
 
   const handleToggleMember = (user: UserDTO) => {
     if (selectedMembers.some((m) => m.id === user.id)) {
@@ -292,7 +325,7 @@ export default function CreateGroupScreen() {
           </View>
         )}
 
-        {/* STEP 2: MEMBER SEARCH & INVITATION PREVIEW */}
+        {/* STEP 2: ADD PEOPLE */}
         {step === 2 && (
           <View style={styles.stepContainer}>
             <View style={styles.sectionHeader}>
@@ -304,56 +337,104 @@ export default function CreateGroupScreen() {
               </Text>
             </View>
 
-            {/* Creator Row (Locked) */}
+            {/* Creator Self-Card */}
             <Surface variant="card" style={styles.memberCard}>
               <Avatar name={currentUser?.name || 'You'} size="medium" />
               <View style={styles.memberInfo}>
                 <Text variant="body" weight="semibold">
-                  {currentUser?.name || 'You'} (You)
+                  {currentUser?.name} (You)
                 </Text>
                 <Text variant="caption" color={theme.colors.textMuted}>
-                  {currentUser?.email || 'Creator • Owner'}
+                  {currentUser?.email}
                 </Text>
               </View>
-              <View style={[styles.lockedBadge, { backgroundColor: theme.colors.surfaceElevated }]}>
-                <Text variant="caption" weight="bold" color={theme.colors.textMuted}>
+              <View style={[styles.roleBadge, { backgroundColor: theme.colors.surfaceSubtle }]}>
+                <Text variant="caption" weight="medium" color={theme.colors.textMuted}>
                   Creator
                 </Text>
               </View>
             </Surface>
 
-            {/* Selected Additional Members */}
-            {selectedMembers.map((m) => (
-              <Surface key={m.id} variant="card" style={styles.memberCard}>
-                <Avatar name={m.name} size="medium" />
-                <View style={styles.memberInfo}>
-                  <Text variant="body" weight="semibold">
-                    {m.name}
-                  </Text>
-                  <Text variant="caption" color={theme.colors.textMuted}>
-                    {m.email}
-                  </Text>
-                </View>
-                <Pressable onPress={() => handleToggleMember(m)} style={styles.removeBtn}>
-                  <Text variant="caption" weight="bold" color={theme.colors.negative}>
-                    ✕ Remove
-                  </Text>
-                </Pressable>
-              </Surface>
-            ))}
+            {/* Selected Additional Members Stack */}
+            {selectedMembers.length > 0 && (
+              <View style={styles.selectedRosterSection}>
+                <Text variant="caption" weight="bold" color={theme.colors.textMuted} style={styles.subHeaderLabel}>
+                  ADDED MEMBERS ({selectedMembers.length})
+                </Text>
+                {selectedMembers.map((m) => (
+                  <Surface key={m.id} variant="card" style={styles.memberCard}>
+                    <Avatar name={m.name} size="medium" />
+                    <View style={styles.memberInfo}>
+                      <Text variant="body" weight="semibold">
+                        {m.name}
+                      </Text>
+                      {m.email ? (
+                        <Text variant="caption" color={theme.colors.textMuted}>
+                          {m.email}
+                        </Text>
+                      ) : null}
+                    </View>
+                    <Pressable onPress={() => handleToggleMember(m)} style={styles.removeBtn}>
+                      <Text variant="caption" weight="bold" color={theme.colors.negative}>
+                        ✕ Remove
+                      </Text>
+                    </Pressable>
+                  </Surface>
+                ))}
+              </View>
+            )}
 
-            {/* Search Input for Existing Settle Users */}
+            {/* Quick Friend Picks (People you've shared groups/invites with) */}
+            {friends.length > 0 && (
+              <View style={styles.friendsSection}>
+                <Text variant="caption" weight="bold" color={theme.colors.textMuted} style={styles.subHeaderLabel}>
+                  YOUR FRIENDS
+                </Text>
+                <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.friendsChipsRow}>
+                  {friends.map((friend) => {
+                    const isAdded = selectedMembers.some((m) => m.id === friend.id);
+                    return (
+                      <Pressable
+                        key={friend.id}
+                        onPress={() => handleToggleMember(friend)}
+                        style={[
+                          styles.friendChip,
+                          {
+                            backgroundColor: isAdded ? theme.colors.surfaceSubtle : theme.colors.surface,
+                            borderColor: isAdded ? theme.colors.primary : theme.colors.border,
+                          },
+                        ]}
+                      >
+                        <Avatar name={friend.name} size="small" />
+                        <Text
+                          variant="bodySecondary"
+                          weight={isAdded ? 'bold' : 'medium'}
+                          color={isAdded ? theme.colors.primary : theme.colors.textPrimary}
+                        >
+                          {friend.name}
+                        </Text>
+                        <Text style={{ fontSize: 13, color: isAdded ? theme.colors.primary : theme.colors.textMuted }}>
+                          {isAdded ? '✓' : '+'}
+                        </Text>
+                      </Pressable>
+                    );
+                  })}
+                </ScrollView>
+              </View>
+            )}
+
+            {/* Search Input for Settle ID & Email */}
             <View style={styles.searchBox}>
               <Input
-                label="Search Settle Users"
-                placeholder="Type name or email (e.g. Rohit, raj@...)"
+                label="Search by Settle ID or Email"
+                placeholder="e.g. @rohit_8a12 or rohit@gmail.com"
                 value={searchQuery}
                 onChangeText={setSearchQuery}
               />
               {searching && <ActivityIndicator size="small" color={theme.colors.primary} style={styles.searchSpinner} />}
             </View>
 
-            {/* Search Results dropdown */}
+            {/* Search Results Dropdown */}
             {searchResults.length > 0 && (
               <Surface variant="elevated" style={styles.resultsContainer}>
                 {searchResults.map((user) => {
@@ -369,9 +450,11 @@ export default function CreateGroupScreen() {
                         <Text variant="body" weight="semibold">
                           {user.name}
                         </Text>
-                        <Text variant="caption" color={theme.colors.textMuted}>
-                          {user.email}
-                        </Text>
+                        {user.email ? (
+                          <Text variant="caption" color={theme.colors.textMuted}>
+                            {user.email}
+                          </Text>
+                        ) : null}
                       </View>
                       <View
                         style={[
@@ -391,13 +474,13 @@ export default function CreateGroupScreen() {
               </Surface>
             )}
 
-            {/* Shareable Link Hint */}
+            {/* Shareable Link Communication */}
             <View style={[styles.inviteHint, { backgroundColor: theme.colors.surfaceSubtle, borderColor: theme.colors.borderSubtle }]}>
               <Text variant="body" weight="semibold">
-                Need to invite someone without an account?
+                Want to invite friends via link?
               </Text>
               <Text variant="caption" color={theme.colors.textMuted}>
-                A secure invite link and code are automatically generated once you create the group.
+                A secure invite link & code will be generated once you create the group so friends can join anytime.
               </Text>
             </View>
 
@@ -695,10 +778,36 @@ const styles = StyleSheet.create({
     flex: 1,
     gap: 2,
   },
-  lockedBadge: {
-    paddingHorizontal: 8,
+  roleBadge: {
+    paddingHorizontal: 10,
     paddingVertical: 4,
     borderRadius: 6,
+  },
+  selectedRosterSection: {
+    gap: 8,
+    marginTop: 4,
+  },
+  friendsSection: {
+    gap: 8,
+    marginTop: 4,
+  },
+  subHeaderLabel: {
+    letterSpacing: 0.8,
+    fontSize: 11,
+  },
+  friendsChipsRow: {
+    flexDirection: 'row',
+    gap: 8,
+    paddingVertical: 2,
+  },
+  friendChip: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+    borderRadius: 20,
+    borderWidth: 1,
+    gap: 8,
   },
   removeBtn: {
     paddingHorizontal: 8,

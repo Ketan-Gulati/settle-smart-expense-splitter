@@ -20,8 +20,28 @@ export interface UserDTO {
   id: string;
   name: string;
   email: string;
+  settleId?: string;
   avatarUrl: string | null;
   createdAt?: string;
+}
+
+export type NotificationType = 'GROUP_INVITE' | 'INVITE_ACCEPTED' | 'INVITE_REJECTED' | 'EXPENSE_ADDED' | 'GENERAL';
+export type NotificationStatus = 'PENDING' | 'ACCEPTED' | 'REJECTED' | 'READ';
+
+export interface NotificationDTO {
+  id: string;
+  recipientUserId: string;
+  actorUserId?: string;
+  actorName?: string;
+  actorAvatarUrl?: string | null;
+  type: NotificationType;
+  groupId?: string;
+  groupName?: string;
+  status: NotificationStatus;
+  title: string;
+  message: string;
+  createdAt: string;
+  updatedAt?: string;
 }
 
 export interface AuthTokensDTO {

@@ -1,12 +1,13 @@
 import React from 'react';
 import { View, StyleSheet, Pressable, ViewStyle } from 'react-native';
+import { useRouter } from 'expo-router';
 import { Text } from './Text';
 import { Icon } from './Icon';
 import { useAppTheme } from '@/hooks/useAppTheme';
 
 export interface DetailHeaderProps {
   title: string;
-  onBackPress: () => void;
+  onBackPress?: () => void;
   rightAction?: React.ReactNode;
   style?: ViewStyle;
 }
@@ -18,10 +19,27 @@ export const DetailHeader: React.FC<DetailHeaderProps> = ({
   style,
 }) => {
   const theme = useAppTheme();
+  const router = useRouter();
+
+  const handleBack = () => {
+    if (onBackPress) {
+      if (router.canGoBack()) {
+        onBackPress();
+      } else {
+        router.replace('/(tabs)' as any);
+      }
+    } else {
+      if (router.canGoBack()) {
+        router.back();
+      } else {
+        router.replace('/(tabs)' as any);
+      }
+    }
+  };
 
   return (
     <View style={[styles.header, { backgroundColor: theme.colors.background }, style]}>
-      <Pressable onPress={onBackPress} style={styles.backButton}>
+      <Pressable onPress={handleBack} style={styles.backButton}>
         <Icon name="arrow-back" size={24} color={theme.colors.textPrimary} />
       </Pressable>
 

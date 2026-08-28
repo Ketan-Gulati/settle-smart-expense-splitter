@@ -4,7 +4,7 @@ import { Logger } from '../../utils/logger';
 import { AppError } from '../../errors/AppError';
 import { env } from '../../config/env';
 
-export type OtpPurpose = 'email_verification' | 'password_reset' | 'login' | 'signup';
+export type OtpPurpose = 'email_verification' | 'password_reset' | 'password_change' | 'login' | 'signup';
 
 export interface OtpRecord {
   hash: string;

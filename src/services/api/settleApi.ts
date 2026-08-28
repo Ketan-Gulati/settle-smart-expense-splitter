@@ -115,8 +115,72 @@ export class SettleApiService {
     return res.data;
   }
 
+  public static async getFriends(): Promise<UserDTO[]> {
+    const res = await ApiClient.get<UserDTO[]>('/users/friends');
+    return res.data;
+  }
+
   public static async searchUsers(query: string): Promise<UserDTO[]> {
     const res = await ApiClient.get<UserDTO[]>(`/users/search?q=${encodeURIComponent(query)}`);
+    return res.data;
+  }
+
+  public static async requestPasswordChangeOtp(): Promise<{ message: string; emailMasked: string }> {
+    const res = await ApiClient.post<{ message: string; emailMasked: string }>('/users/change-password/request-otp');
+    return res.data;
+  }
+
+  public static async changePassword(otp: string, newPassword: string): Promise<{ message: string }> {
+    const res = await ApiClient.post<{ message: string }>('/users/change-password', {
+      otp,
+      newPassword,
+    });
+    return res.data;
+  }
+
+  public static async getAccountDeletionStatus(): Promise<{
+    canDelete: boolean;
+    totalOwedByYouMinor: number;
+    totalOwedToYouMinor: number;
+    reason?: string;
+  }> {
+    const res = await ApiClient.get<{
+      canDelete: boolean;
+      totalOwedByYouMinor: number;
+      totalOwedToYouMinor: number;
+      reason?: string;
+    }>('/users/me/deletion-status');
+    return res.data;
+  }
+
+  public static async deleteAccount(): Promise<{ message: string }> {
+    const res = await ApiClient.delete<{ message: string }>('/users/me');
+    return res.data;
+  }
+
+  // --- Notifications & Action Center ---
+  public static async getNotifications(): Promise<import('./types').NotificationDTO[]> {
+    const res = await ApiClient.get<import('./types').NotificationDTO[]>('/notifications');
+    return res.data;
+  }
+
+  public static async respondToNotification(
+    notificationId: string,
+    action: 'ACCEPT' | 'REJECT'
+  ): Promise<{ status: string; message: string }> {
+    const res = await ApiClient.post<{ status: string; message: string }>(
+      `/notifications/${notificationId}/respond`,
+      { action }
+    );
+    return res.data;
+  }
+
+  public static async dismissNotification(
+    notificationId: string
+  ): Promise<{ status: string; message: string }> {
+    const res = await ApiClient.post<{ status: string; message: string }>(
+      `/notifications/${notificationId}/dismiss`
+    );
     return res.data;
   }
 

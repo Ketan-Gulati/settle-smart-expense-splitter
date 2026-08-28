@@ -13,14 +13,37 @@ export default function GlobalSettlementScreen() {
   const [dashboard, setDashboard] = useState<DashboardDTO | null>(null);
   const [loading, setLoading] = useState(true);
 
+  const [error, setError] = useState<string | null>(null);
+
   useEffect(() => {
     async function loadGlobalSettlements() {
       try {
         setLoading(true);
-        const dash = await SettleApiService.getDashboard();
-        setDashboard(dash);
-      } catch (err) {
+        setError(null);
+        try {
+          const dash = await SettleApiService.getDashboard();
+          setDashboard(dash);
+          return;
+        } catch {
+          // Local fallback for offline / transient network disconnects
+          const { homeFeedService } = await import('@/services/homeFeedService');
+          const homeData = await homeFeedService.getHomeDashboardData();
+          setDashboard({
+            totalNetBalanceMinor: homeData.totalNetBalanceMinor,
+            groups: homeData.topGroups.map((tg) => ({
+              id: tg.group.id,
+              name: tg.group.name,
+              currency: tg.group.currency,
+              userNetBalanceMinor: tg.netBalanceMinor,
+              unsettledExpenseCount: tg.unsettledExpensesCount,
+              memberCount: tg.group.members?.length || 1,
+            })),
+            recentActivity: [],
+          });
+        }
+      } catch (err: any) {
         console.error('Failed to load global settlements:', err);
+        setError(err.message || 'Failed to load settlements');
       } finally {
         setLoading(false);
       }
@@ -28,7 +51,7 @@ export default function GlobalSettlementScreen() {
     loadGlobalSettlements();
   }, []);
 
-  if (loading || !dashboard) {
+  if (loading) {
     return (
       <View style={[styles.center, { backgroundColor: theme.colors.background }]}>
         <ActivityIndicator size="large" color={theme.colors.primary} />
@@ -36,13 +59,21 @@ export default function GlobalSettlementScreen() {
     );
   }
 
-  const unsettledGroups = dashboard.groups.filter((g) => g.userNetBalanceMinor !== 0);
+  const unsettledGroups = dashboard ? dashboard.groups.filter((g) => g.userNetBalanceMinor !== 0) : [];
 
   return (
     <View style={[styles.container, { backgroundColor: theme.colors.background }]}>
       <DetailHeader title="Global Settlement" onBackPress={() => router.back()} />
 
       <ScrollView contentContainerStyle={styles.content} showsVerticalScrollIndicator={false}>
+        {error && (
+          <View style={styles.errorCard}>
+            <Text variant="caption" color={theme.colors.negative}>
+              {error}
+            </Text>
+          </View>
+        )}
+
         <Text variant="label" color={theme.colors.textMuted} style={styles.superTitle}>
           CROSS-GROUP SETTLEMENTS
         </Text>
@@ -140,5 +171,11 @@ const styles = StyleSheet.create({
   },
   groupInfo: {
     gap: 4,
+  },
+  errorCard: {
+    padding: 12,
+    borderRadius: 8,
+    backgroundColor: 'rgba(239, 68, 68, 0.12)',
+    marginBottom: 8,
   },
 });

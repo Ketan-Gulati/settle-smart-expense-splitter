@@ -17,5 +17,6 @@ export * from './GroupCard';
 export * from './ExpenseActivityRow';
 export * from './NumericKeypad';
 export * from './SettlementPathCard';
+export * from './NotificationSideMenu';
 export * from './Icon';
 export * from './onboarding/SettleWorldScene';

@@ -2,7 +2,7 @@ import { useEffect, useState, useCallback, useMemo } from 'react';
 import { View, ScrollView, StyleSheet, ActivityIndicator, Pressable, TextInput } from 'react-native';
 import { useRouter } from 'expo-router';
 import { useAppTheme } from '@/hooks/useAppTheme';
-import { AppHeader, EmptyState, ExpenseActivityRow, Text, Icon } from '@/components';
+import { AppHeader, EmptyState, ExpenseActivityRow, Text, Icon, NotificationSideMenu } from '@/components';
 import { SettleApiService } from '@/services/api/settleApi';
 import { ActivityEventDTO } from '@/services/api/types';
 import { useAppStore } from '@/store/appStore';
@@ -40,7 +40,7 @@ export default function ActivityScreen() {
         const defaultUser = await userRepository.getOrCreateDefaultUser();
         setUserName(defaultUser.name);
 
-        const groups = await groupRepository.findAll();
+        const groups = await groupRepository.findByUser(defaultUser.id);
         const groupMap = new Map(groups.map((g) => [g.id, g.name]));
 
         const allExpenses: any[] = [];
@@ -116,9 +116,20 @@ export default function ActivityScreen() {
     { label: 'This Year', value: 'THIS_YEAR' },
   ];
 
+  const [sideMenuVisible, setSideMenuVisible] = useState(false);
+
   return (
     <View style={[styles.container, { backgroundColor: theme.colors.background }]}>
-      <AppHeader userName={userName} onSettingsPress={() => router.push('/settings' as any)} />
+      <AppHeader
+        userName={userName}
+        onAvatarPress={() => router.push('/profile' as any)}
+        onMenuPress={() => setSideMenuVisible(true)}
+      />
+
+      <NotificationSideMenu
+        visible={sideMenuVisible}
+        onClose={() => setSideMenuVisible(false)}
+      />
 
       {loading ? (
         <View style={styles.center}>

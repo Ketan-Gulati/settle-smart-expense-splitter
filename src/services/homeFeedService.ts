@@ -112,7 +112,7 @@ export class HomeFeedService {
     } catch {
       // Local repository fallback (e.g. for offline unit testing)
       const user = await userRepository.getOrCreateDefaultUser();
-      const groups = await groupRepository.findAll();
+      const groups = await groupRepository.findByUser(user.id);
 
       let totalNetBalanceMinor = 0;
       let totalOwedToUserMinor = 0;

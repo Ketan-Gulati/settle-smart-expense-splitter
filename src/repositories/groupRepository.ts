@@ -140,6 +140,53 @@ export class GroupRepository {
     };
   }
 
+  public async findByUser(userId: EntityId): Promise<GroupEntity[]> {
+    const db = await databaseService.getDb();
+    const rows = await db.getAllAsync<any>(
+      `SELECT g.*, 
+        (SELECT COUNT(id) FROM expenses WHERE group_id = g.id) as expense_count,
+        (SELECT COALESCE(SUM(amount_minor), 0) FROM expenses WHERE group_id = g.id) as total_spent
+       FROM groups g 
+       INNER JOIN group_members gm ON gm.group_id = g.id
+       WHERE g.archived_at IS NULL AND gm.user_id = ?
+       ORDER BY g.created_at DESC;`,
+      [userId]
+    );
+
+    const groups: GroupEntity[] = [];
+    for (const r of rows) {
+      const memberRows = await db.getAllAsync<any>(
+        `SELECT u.id, u.name, u.email, u.avatar, u.default_currency, u.created_at
+         FROM users u
+         INNER JOIN group_members gm ON gm.user_id = u.id
+         WHERE gm.group_id = ?;`,
+        [r.id]
+      );
+
+      groups.push({
+        id: r.id,
+        name: r.name,
+        type: r.type,
+        currency: r.currency,
+        ownerId: r.owner_id,
+        createdAt: r.created_at,
+        archivedAt: r.archived_at || undefined,
+        members: memberRows.map((u) => ({
+          id: u.id,
+          name: u.name,
+          email: u.email || undefined,
+          avatar: u.avatar || undefined,
+          defaultCurrency: u.default_currency,
+          createdAt: u.created_at,
+        })),
+        expenseCount: r.expense_count || 0,
+        totalSpentMinor: r.total_spent || 0,
+      });
+    }
+
+    return groups;
+  }
+
   public async findAll(): Promise<GroupEntity[]> {
     const db = await databaseService.getDb();
     const rows = await db.getAllAsync<any>(

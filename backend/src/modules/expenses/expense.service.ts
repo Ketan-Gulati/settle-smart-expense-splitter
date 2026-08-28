@@ -2,6 +2,7 @@ import { prisma } from '../../infrastructure/database/prisma';
 import { SplitMethod } from '@prisma/client';
 import { GroupService } from '../groups/group.service';
 import { Money } from '../../utils/money';
+import { NotificationService } from '../notifications/notification.service';
 import {
   NotFoundError,
   ValidationError,
@@ -110,6 +111,32 @@ export class ExpenseService {
 
       return created;
     });
+
+    // Notify other group members about the newly added expense
+    try {
+      const groupMembers = await prisma.groupMember.findMany({
+        where: { groupId: input.groupId, leftAt: null, userId: { not: authenticatedUserId } },
+        select: { userId: true },
+      });
+
+      const formattedAmount = (Number(expense.amountMinor) / 100).toFixed(2);
+      const payerName = expense.payer.name;
+      const groupName = expense.group.name;
+
+      for (const member of groupMembers) {
+        await NotificationService.createNotification({
+          recipientUserId: member.userId,
+          actorUserId: authenticatedUserId,
+          type: 'EXPENSE_ADDED',
+          groupId: input.groupId,
+          groupName,
+          title: `New Expense: ${expense.description}`,
+          message: `${payerName} added ₹${formattedAmount} in ${groupName}`,
+        });
+      }
+    } catch (notifErr) {
+      console.error('Failed to send expense notifications to group members:', notifErr);
+    }
 
     return this.mapExpenseResponse(expense);
   }

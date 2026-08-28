@@ -16,6 +16,7 @@ import { balanceRoutes } from './modules/balances/balance.routes';
 import { settlementRoutes } from './modules/settlements/settlement.routes';
 import { activityRoutes } from './modules/activity/activity.routes';
 import { dashboardRoutes } from './modules/dashboard/dashboard.routes';
+import { notificationRoutes } from './modules/notifications/notification.routes';
 
 export const createApp = (): Express => {
   const app = express();
@@ -62,6 +63,7 @@ export const createApp = (): Express => {
   apiV1.use('/expenses', expenseRoutes);
   apiV1.use('/activity', activityRoutes);
   apiV1.use('/dashboard', dashboardRoutes);
+  apiV1.use('/notifications', notificationRoutes);
 
   // Mount API v1
   app.use('/api/v1', apiV1);

@@ -1,7 +1,7 @@
 import { useEffect, useState, useCallback } from 'react';
 import { View, ScrollView, StyleSheet, ActivityIndicator, Modal, Pressable } from 'react-native';
 import { useRouter } from 'expo-router';
-import { Text, Button, Input, Surface, AppHeader, MoneyDisplay, EmptyState } from '@/components';
+import { Text, Button, Input, Surface, AppHeader, MoneyDisplay, EmptyState, NotificationSideMenu } from '@/components';
 import { useAppTheme } from '@/hooks/useAppTheme';
 import { SettleApiService } from '@/services/api/settleApi';
 import { GroupDTO, UserDTO } from '@/services/api/types';
@@ -68,7 +68,7 @@ export default function GroupsScreen() {
           avatarUrl: defaultUser.avatar || null,
         });
 
-        const localGroups = await groupRepository.findAll();
+        const localGroups = await groupRepository.findByUser(defaultUser.id);
         const items: GroupListItem[] = await Promise.all(
           localGroups.map(async (g) => {
             const balRes = await balanceService.getGroupBalances(g.id);
@@ -136,11 +136,19 @@ export default function GroupsScreen() {
     }
   };
 
+  const [sideMenuVisible, setSideMenuVisible] = useState(false);
+
   return (
     <View style={[styles.container, { backgroundColor: theme.colors.background }]}>
       <AppHeader
         userName={currentUser?.name || 'Ketan'}
-        onSettingsPress={() => router.push('/settings' as any)}
+        onAvatarPress={() => router.push('/profile' as any)}
+        onMenuPress={() => setSideMenuVisible(true)}
+      />
+
+      <NotificationSideMenu
+        visible={sideMenuVisible}
+        onClose={() => setSideMenuVisible(false)}
       />
 
       {loading ? (

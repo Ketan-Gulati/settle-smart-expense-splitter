@@ -16,6 +16,7 @@ import {
   GroupCard,
   SectionHeader,
   ExpenseActivityRow,
+  NotificationSideMenu,
 } from '@/components';
 import { useAppTheme } from '@/hooks/useAppTheme';
 import { homeFeedService, HomeDashboardData } from '@/services/homeFeedService';
@@ -29,6 +30,7 @@ export default function HomeScreen() {
   const [data, setData] = useState<HomeDashboardData | null>(null);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
+  const [sideMenuVisible, setSideMenuVisible] = useState(false);
 
   const loadDashboard = useCallback(async () => {
     try {
@@ -74,7 +76,17 @@ export default function HomeScreen() {
   return (
     <View style={[styles.container, { backgroundColor: theme.colors.background }]}>
       {/* 1. App Header */}
-      <AppHeader userName={user.name} onSettingsPress={() => router.push('/settings' as any)} />
+      <AppHeader
+        userName={user.name}
+        onAvatarPress={() => router.push('/profile' as any)}
+        onMenuPress={() => setSideMenuVisible(true)}
+      />
+
+      {/* Notifications Slide-Out Menu */}
+      <NotificationSideMenu
+        visible={sideMenuVisible}
+        onClose={() => setSideMenuVisible(false)}
+      />
 
       <ScrollView
         contentContainerStyle={styles.content}
@@ -83,7 +95,7 @@ export default function HomeScreen() {
       >
         {/* 2. Greeting & Total Net Balance Hero */}
         <View style={styles.heroSection}>
-          <Text variant="bodySecondary" color={theme.colors.textSecondary}>
+          <Text variant="bodySecondary" color={theme.colors.textSecondary} weight="medium">
             {greeting}
           </Text>
           <Text variant="label" color={theme.colors.textMuted} style={styles.netLabel}>
@@ -116,14 +128,18 @@ export default function HomeScreen() {
               ]}
             >
               <View style={styles.bannerRow}>
-                <Text variant="title" weight="bold" color={theme.colors.primaryForeground}>
-                  Review settlement →
-                </Text>
+                <View style={{ gap: 4 }}>
+                  <Text variant="title" weight="bold" color="#FFFFFF">
+                    Review settlement →
+                  </Text>
+                  <Text variant="caption" weight="medium" style={{ color: 'rgba(255, 255, 255, 0.85)' }}>
+                    {totalOptimizedPaymentsCount} direct payment{totalOptimizedPaymentsCount > 1 ? 's' : ''} to zero all balances
+                  </Text>
+                </View>
+                <View style={styles.settleBadgeRight}>
+                  <Text style={styles.settleArrowIcon}>⚡</Text>
+                </View>
               </View>
-              <Text variant="caption" color={theme.colors.textMuted}>
-                {totalOptimizedPaymentsCount} payment
-                {totalOptimizedPaymentsCount > 1 ? 's' : ''} to settle everything
-              </Text>
             </Pressable>
           ) : topGroups.length > 0 && totalNetBalanceMinor === 0 ? (
             <Surface variant="subtle" style={styles.settledBanner}>
@@ -136,11 +152,12 @@ export default function HomeScreen() {
           {topGroups.length > 0 && (
             <Pressable
               onPress={() => router.push('/expenses/new' as any)}
-              style={[
+              style={({ pressed }) => [
                 styles.addExpenseHomeBtn,
                 {
                   borderColor: theme.colors.border,
-                  backgroundColor: theme.colors.surfaceSubtle,
+                  backgroundColor: theme.colors.surface,
+                  opacity: pressed ? 0.85 : 1,
                 },
               ]}
             >
@@ -266,6 +283,22 @@ const styles = StyleSheet.create({
     paddingHorizontal: 20,
     paddingVertical: 18,
     gap: 6,
+    shadowColor: '#0284C7',
+    shadowOffset: { width: 0, height: 6 },
+    shadowOpacity: 0.25,
+    shadowRadius: 12,
+    elevation: 4,
+  },
+  settleBadgeRight: {
+    width: 36,
+    height: 36,
+    borderRadius: 18,
+    backgroundColor: 'rgba(255, 255, 255, 0.2)',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  settleArrowIcon: {
+    fontSize: 18,
   },
   addExpenseHomeBtn: {
     borderRadius: 14,

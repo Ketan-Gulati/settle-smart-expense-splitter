@@ -7,7 +7,9 @@ import { useAppTheme } from '@/hooks/useAppTheme';
 export interface AppHeaderProps {
   userName?: string;
   avatarUrl?: string;
+  unreadCount?: number;
   onAvatarPress?: () => void;
+  onMenuPress?: () => void;
   onSettingsPress?: () => void;
   style?: ViewStyle;
 }
@@ -17,7 +19,9 @@ const LOGO_URL = 'https://res.cloudinary.com/dxanpvaub/image/upload/v1787513935/
 export const AppHeader: React.FC<AppHeaderProps> = ({
   userName = 'Alex',
   avatarUrl,
+  unreadCount = 0,
   onAvatarPress,
+  onMenuPress,
   onSettingsPress,
   style,
 }) => {
@@ -35,12 +39,17 @@ export const AppHeader: React.FC<AppHeaderProps> = ({
         />
       </View>
 
+      {/* Top-Left: Profile & Settings Avatar */}
       <Pressable onPress={onAvatarPress} style={styles.avatarButton}>
         <Avatar name={userName} imageUrl={avatarUrl} size="medium" />
       </Pressable>
 
-      <Pressable onPress={onSettingsPress} style={styles.iconButton}>
-        <Icon name="settings-outline" size={22} color={theme.colors.textPrimary} />
+      {/* Top-Right: Hamburger Menu with Action Center / Notification Badge */}
+      <Pressable onPress={onMenuPress || onSettingsPress} style={styles.iconButton}>
+        <Icon name="menu-outline" size={24} color={theme.colors.textPrimary} />
+        {unreadCount > 0 && (
+          <View style={[styles.badgeDot, { backgroundColor: theme.colors.primary }]} />
+        )}
       </Pressable>
     </View>
   );
@@ -83,6 +92,15 @@ const styles = StyleSheet.create({
     alignItems: 'flex-end',
     justifyContent: 'center',
     zIndex: 10,
+    position: 'relative',
+  },
+  badgeDot: {
+    position: 'absolute',
+    top: 8,
+    right: 4,
+    width: 8,
+    height: 8,
+    borderRadius: 4,
   },
   gearIcon: {
     fontSize: 22,
