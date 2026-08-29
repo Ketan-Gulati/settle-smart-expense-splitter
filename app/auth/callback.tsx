@@ -20,14 +20,30 @@ export default function AuthCallbackScreen() {
 
   useEffect(() => {
     async function processCallback() {
-      if (accessToken && refreshToken) {
-        await TokenStorage.setAccessToken(accessToken);
-        await TokenStorage.setRefreshToken(refreshToken);
-        await initSession();
+      let token = accessToken;
+      let refresh = refreshToken;
+      let target = returnUrl || state;
 
-        const targetUrl = returnUrl || state;
-        if (targetUrl && targetUrl.startsWith('/')) {
-          router.replace(decodeURIComponent(targetUrl) as any);
+      if (typeof window !== 'undefined' && window.location?.search) {
+        const params = new URLSearchParams(window.location.search);
+        token = token || params.get('accessToken') || undefined;
+        refresh = refresh || params.get('refreshToken') || undefined;
+        target = target || params.get('returnUrl') || params.get('state') || undefined;
+      }
+
+      if (token && refresh) {
+        await TokenStorage.setAccessToken(token);
+        await TokenStorage.setRefreshToken(refresh);
+        
+        try {
+          const user = await SettleApiService.getMe();
+          useAppStore.setState({ currentUser: user, isAuthenticated: true, isSessionLoading: false });
+        } catch {
+          await initSession();
+        }
+
+        if (target && target.startsWith('/')) {
+          router.replace(decodeURIComponent(target) as any);
         } else {
           router.replace('/(tabs)' as any);
         }
