@@ -85,15 +85,19 @@ export default function ProfileScreen() {
     try {
       setDeletingAccount(true);
       await SettleApiService.deleteAccount();
-      await SettleApiService.logout();
+      const { useAppStore } = await import('@/store/appStore');
+      await useAppStore.getState().logout();
       setDeleteModalVisible(false);
-      router.replace('/auth' as any);
+      router.replace('/auth/signup' as any);
     } catch (err: any) {
       console.error('Failed to delete account:', err);
       // Even if server errored, log out locally to protect state
-      await SettleApiService.logout();
+      try {
+        const { useAppStore } = await import('@/store/appStore');
+        await useAppStore.getState().logout();
+      } catch {}
       setDeleteModalVisible(false);
-      router.replace('/auth' as any);
+      router.replace('/auth/signup' as any);
     } finally {
       setDeletingAccount(false);
     }
