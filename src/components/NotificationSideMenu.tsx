@@ -145,11 +145,11 @@ export const NotificationSideMenu: React.FC<NotificationSideMenuProps> = ({ visi
                 <View style={[styles.iconWrap, { backgroundColor: theme.colors.surfaceElevated }]}>
                   <Icon name="notifications-outline" size={20} color={theme.colors.textPrimary} />
                 </View>
-                <View style={{ gap: 2 }}>
+                <View style={styles.textContainer}>
                   <Text variant="body" weight="semibold" color={theme.colors.textPrimary}>
                     Notifications
                   </Text>
-                  <Text variant="caption" color={theme.colors.textMuted}>
+                  <Text variant="caption" color={theme.colors.textMuted} numberOfLines={1}>
                     Invites & group alerts
                   </Text>
                 </View>
@@ -190,11 +190,11 @@ export const NotificationSideMenu: React.FC<NotificationSideMenuProps> = ({ visi
                 <View style={[styles.iconWrap, { backgroundColor: 'rgba(2, 132, 199, 0.15)' }]}>
                   <Icon name="card" size={20} color={theme.colors.primary} />
                 </View>
-                <View style={{ gap: 2 }}>
+                <View style={styles.textContainer}>
                   <Text variant="body" weight="semibold" color={theme.colors.textPrimary}>
                     My Expenses & Charts
                   </Text>
-                  <Text variant="caption" color={theme.colors.textMuted}>
+                  <Text variant="caption" color={theme.colors.textMuted} numberOfLines={1}>
                     Personal spending, categories & trends
                   </Text>
                 </View>
@@ -224,11 +224,11 @@ export const NotificationSideMenu: React.FC<NotificationSideMenuProps> = ({ visi
                 <View style={[styles.iconWrap, { backgroundColor: 'rgba(16, 185, 129, 0.15)' }]}>
                   <Icon name="flash" size={20} color="#10B981" />
                 </View>
-                <View style={{ gap: 2 }}>
+                <View style={styles.textContainer}>
                   <Text variant="body" weight="semibold" color={theme.colors.textPrimary}>
                     Spending Analytics & Insights
                   </Text>
-                  <Text variant="caption" color={theme.colors.textMuted}>
+                  <Text variant="caption" color={theme.colors.textMuted} numberOfLines={1}>
                     Monthly totals, category breakdown & groups
                   </Text>
                 </View>
@@ -306,6 +306,11 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     gap: 12,
     flex: 1,
+  },
+  textContainer: {
+    flex: 1,
+    gap: 2,
+    marginRight: 6,
   },
   iconWrap: {
     width: 40,

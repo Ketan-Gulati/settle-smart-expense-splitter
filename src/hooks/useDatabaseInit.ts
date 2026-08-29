@@ -14,8 +14,6 @@ export function useDatabaseInit(): { isReady: boolean; error: Error | null } {
       try {
         await initSession();
         await databaseService.initialize();
-        const { SeedDataService } = await import('../repositories/seedDataService');
-        await SeedDataService.seedDevelopmentData();
         if (isMounted) {
           setIsReady(true);
         }

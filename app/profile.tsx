@@ -156,10 +156,15 @@ export default function ProfileScreen() {
   const handleLogout = async () => {
     try {
       setLoggingOut(true);
-      await SettleApiService.logout();
+      const { useAppStore } = await import('@/store/appStore');
+      await useAppStore.getState().logout();
       router.replace('/auth' as any);
     } catch (err) {
       console.error('Logout error:', err);
+      try {
+        const { useAppStore } = await import('@/store/appStore');
+        useAppStore.setState({ currentUser: null, isAuthenticated: false });
+      } catch {}
       router.replace('/auth' as any);
     } finally {
       setLoggingOut(false);
