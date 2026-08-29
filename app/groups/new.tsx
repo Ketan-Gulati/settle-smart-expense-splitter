@@ -151,6 +151,8 @@ export default function CreateGroupScreen() {
       if (newGroup.activeInvite) {
         setActiveInvite(newGroup.activeInvite);
       }
+      const { homeFeedService } = await import('@/services/homeFeedService');
+      homeFeedService.clearCache();
       notifyDataChanged();
       setStep(4); // Success & Share Step
     } catch (err: any) {
@@ -294,16 +296,16 @@ export default function CreateGroupScreen() {
             </View>
 
             <View style={[styles.currencyBox, { backgroundColor: theme.colors.surfaceSubtle, borderColor: theme.colors.borderSubtle }]}>
-              <View>
+              <View style={{ flex: 1, marginRight: 12 }}>
                 <Text variant="body" weight="medium">
                   Currency
                 </Text>
-                <Text variant="caption" color={theme.colors.textMuted}>
+                <Text variant="caption" color={theme.colors.textMuted} style={{ marginTop: 2 }}>
                   {detectingCurrency ? 'Detecting local currency...' : 'Auto-detected from your location'}
                 </Text>
               </View>
-              <Text variant="body" weight="bold" color={theme.colors.primary}>
-                {currencyInfo.symbol} {currencyInfo.code} ({currencyInfo.name})
+              <Text variant="body" weight="bold" color={theme.colors.primary} style={{ textAlign: 'right' }}>
+                {currencyInfo.symbol} {currencyInfo.code}
               </Text>
             </View>
 

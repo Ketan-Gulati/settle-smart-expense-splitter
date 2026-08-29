@@ -12,7 +12,6 @@ import {
 import { useRouter, useLocalSearchParams, Stack } from 'expo-router';
 import { Text, Input } from '@/components';
 import { useAppTheme } from '@/hooks/useAppTheme';
-import { useAppStore } from '@/store/appStore';
 import { SettleApiService } from '@/services/api/settleApi';
 
 // Custom SVG Google Icon Component

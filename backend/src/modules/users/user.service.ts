@@ -420,7 +420,7 @@ export class UserService {
           where: { groupId: g.id },
           take: 1,
         });
-        if (remainingMembers.length > 0) {
+        if (remainingMembers.length > 0 && remainingMembers[0]) {
           await tx.group.update({
             where: { id: g.id },
             data: { createdBy: remainingMembers[0].userId },

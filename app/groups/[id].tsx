@@ -677,11 +677,11 @@ export default function GroupOverviewScreen() {
         {activeTab === 'bills' && (
           <View style={styles.tabSection}>
             <View style={styles.billsHeaderRow}>
-              <View>
+              <View style={{ flex: 1, marginRight: 12 }}>
                 <Text variant="title" weight="bold">
                   Monthly Bills & Schedules
                 </Text>
-                <Text variant="caption" color={theme.colors.textMuted}>
+                <Text variant="caption" color={theme.colors.textMuted} style={{ marginTop: 2 }}>
                   Automated recurring expenses and rent reminders
                 </Text>
               </View>

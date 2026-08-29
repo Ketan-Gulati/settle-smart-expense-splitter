@@ -20,10 +20,11 @@ export default function RootLayout() {
   useEffect(() => {
     if (!isReady || isSessionLoading) return;
 
-    const isCallback = segments[0] === 'auth' && segments[1] === 'callback';
+    const rawSegments = segments as string[];
+    const isCallback = rawSegments[0] === 'auth' && rawSegments[1] === 'callback';
     if (isCallback) return; // Allow auth/callback to process tokens without interference
 
-    const inAuthGroup = segments[0] === 'auth' || segments[0] === 'onboarding';
+    const inAuthGroup = rawSegments[0] === 'auth' || rawSegments[0] === 'onboarding';
 
     if (!isAuthenticated && !inAuthGroup) {
       router.replace('/auth');
@@ -105,6 +106,7 @@ export default function RootLayout() {
       <StatusBar style={theme.isDark ? 'light' : 'dark'} />
       <Stack
         screenOptions={{
+          headerShown: false,
           headerStyle: {
             backgroundColor: theme.colors.surface,
           },
@@ -118,9 +120,9 @@ export default function RootLayout() {
         }}
       >
         <Stack.Screen name="(tabs)" options={{ headerShown: false }} />
-        <Stack.Screen name="design-sandbox" options={{ title: 'Design Sandbox' }} />
+        <Stack.Screen name="design-sandbox" options={{ title: 'Design Sandbox', headerShown: true }} />
         <Stack.Screen name="onboarding" options={{ title: 'Welcome', headerShown: false }} />
-        <Stack.Screen name="auth" options={{ title: 'Sign In', presentation: 'modal' }} />
+        <Stack.Screen name="auth" options={{ title: 'Sign In', headerShown: false, presentation: 'modal' }} />
       </Stack>
     </>
   );

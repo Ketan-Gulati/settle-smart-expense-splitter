@@ -13,6 +13,7 @@ import { CreateGroupInput, UpdateGroupInput, AddMemberInput } from './group.sche
 import { CacheService } from '../../infrastructure/redis/redis.service';
 import { CacheKeys } from '../../infrastructure/redis/redis.keys';
 import { NotificationService } from '../notifications/notification.service';
+import { DashboardService } from '../dashboard/dashboard.service';
 
 export interface GroupMemberResponse {
   id: string;
@@ -175,6 +176,9 @@ export class GroupService {
         });
       }
     }
+
+    // Invalidate dashboard cache for all members so group appears immediately on Home screen
+    await DashboardService.invalidateUserDashboard(uniqueMemberIds);
 
     const activeInvite = group.invitations[0];
 
