@@ -189,14 +189,14 @@ export class GroupService {
       memberCount: group.members.length,
       activeInvite: activeInvite
         ? {
-            id: activeInvite.id,
-            groupId: activeInvite.groupId,
-            inviteCode: activeInvite.inviteCode,
-            inviteLink: `${env.CLIENT_URL}/invite/${activeInvite.inviteCode}`,
-            createdByUserId: activeInvite.createdByUserId,
-            expiresAt: activeInvite.expiresAt ? activeInvite.expiresAt.toISOString() : null,
-            createdAt: activeInvite.createdAt.toISOString(),
-          }
+          id: activeInvite.id,
+          groupId: activeInvite.groupId,
+          inviteCode: activeInvite.inviteCode,
+          inviteLink: `${env.CLIENT_URL}/invite/${activeInvite.inviteCode}`,
+          createdByUserId: activeInvite.createdByUserId,
+          expiresAt: activeInvite.expiresAt ? activeInvite.expiresAt.toISOString() : null,
+          createdAt: activeInvite.createdAt.toISOString(),
+        }
         : null,
       members: group.members.map((m) => ({
         id: m.id,
@@ -270,14 +270,14 @@ export class GroupService {
       memberCount: group.members.length,
       activeInvite: activeInvite
         ? {
-            id: activeInvite.id,
-            groupId: activeInvite.groupId,
-            inviteCode: activeInvite.inviteCode,
-            inviteLink: `${env.CLIENT_URL}/invite/${activeInvite.inviteCode}`,
-            createdByUserId: activeInvite.createdByUserId,
-            expiresAt: activeInvite.expiresAt ? activeInvite.expiresAt.toISOString() : null,
-            createdAt: activeInvite.createdAt.toISOString(),
-          }
+          id: activeInvite.id,
+          groupId: activeInvite.groupId,
+          inviteCode: activeInvite.inviteCode,
+          inviteLink: `${env.CLIENT_URL}/invite/${activeInvite.inviteCode}`,
+          createdByUserId: activeInvite.createdByUserId,
+          expiresAt: activeInvite.expiresAt ? activeInvite.expiresAt.toISOString() : null,
+          createdAt: activeInvite.createdAt.toISOString(),
+        }
         : null,
       members: group.members.map((m) => ({
         id: m.id,
@@ -583,18 +583,18 @@ export class GroupService {
 
     const member = existingMember
       ? await prisma.groupMember.update({
-          where: { id: existingMember.id },
-          data: { leftAt: null, joinedAt: new Date() },
-          include: { user: { select: { id: true, name: true, email: true, avatarUrl: true } } },
-        })
+        where: { id: existingMember.id },
+        data: { leftAt: null, joinedAt: new Date() },
+        include: { user: { select: { id: true, name: true, email: true, avatarUrl: true } } },
+      })
       : await prisma.groupMember.create({
-          data: {
-            groupId,
-            userId: input.userId,
-            role: GroupRole.MEMBER,
-          },
-          include: { user: { select: { id: true, name: true, email: true, avatarUrl: true } } },
-        });
+        data: {
+          groupId,
+          userId: input.userId,
+          role: GroupRole.MEMBER,
+        },
+        include: { user: { select: { id: true, name: true, email: true, avatarUrl: true } } },
+      });
 
     return {
       id: member.id,
