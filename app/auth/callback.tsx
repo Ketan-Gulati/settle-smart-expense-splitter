@@ -4,6 +4,7 @@ import { useRouter, useLocalSearchParams, Stack } from 'expo-router';
 import { Text } from '@/components';
 import { useAppTheme } from '@/hooks/useAppTheme';
 import { TokenStorage } from '@/services/api/tokenStorage';
+import { SettleApiService } from '@/services/api/settleApi';
 import { useAppStore } from '@/store/appStore';
 
 export default function AuthCallbackScreen() {
