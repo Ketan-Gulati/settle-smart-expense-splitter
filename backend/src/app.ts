@@ -32,7 +32,21 @@ export const createApp = (): Express => {
   app.use(helmet());
   app.use(
     cors({
-      origin: [env.CLIENT_URL, 'http://localhost:8081', 'http://localhost:19006'],
+      origin: (origin, callback) => {
+        // Allow mobile apps / curl without origin header
+        if (!origin) return callback(null, true);
+        if (
+          origin === env.CLIENT_URL ||
+          origin === env.FRONTEND_URL ||
+          origin === 'http://localhost:8081' ||
+          origin === 'http://localhost:19006' ||
+          origin.endsWith('.vercel.app') ||
+          origin.includes('settle-smart-expense-splitter')
+        ) {
+          return callback(null, true);
+        }
+        return callback(null, true);
+      },
       credentials: true,
     })
   );
