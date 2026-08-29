@@ -30,6 +30,7 @@ if (fs.existsSync(indexPath)) {
     <link rel="icon" type="image/png" sizes="192x192" href="/icon-192.png">
   `;
 
+  html = html.replace('<link rel="icon" href="/favicon.ico"/>', '<link rel="icon" type="image/png" href="/icon-512.png"/>');
   html = html.replace('</head>', `${pwaTags}</head>`);
   html = html.replace('<body', '<body style="background-color: #0A0D14;"');
   html = html.replace('html {', 'html { background-color: #0A0D14;');
