@@ -353,7 +353,7 @@ export class NotificationService {
         entity: 'NOTIFICATION',
         payload: notif,
       });
-    } catch {}
+    } catch { }
 
     return { status: 'READ', message: 'Notification moved to history.' };
   }
@@ -372,7 +372,7 @@ export class NotificationService {
           entity: 'NOTIFICATION',
           payload: notif,
         });
-      } catch {}
+      } catch { }
     }
   }
 
@@ -391,6 +391,6 @@ export class NotificationService {
         type: 'NOTIFICATION_UPDATED',
         entity: 'NOTIFICATION',
       });
-    } catch {}
+    } catch { }
   }
 }

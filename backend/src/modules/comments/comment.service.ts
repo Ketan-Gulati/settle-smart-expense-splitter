@@ -145,7 +145,7 @@ export class CommentService {
           title: `New Comment on ${expense.description}`,
           message: `${author?.name || 'Someone'}: "${cleanContent.length > 50 ? cleanContent.slice(0, 47) + '...' : cleanContent}"`,
         });
-      } catch {}
+      } catch { }
     }
 
     return commentDto;
