@@ -13,6 +13,7 @@ import { useRouter, useLocalSearchParams, Stack } from 'expo-router';
 import { Text, Input } from '@/components';
 import { useAppTheme } from '@/hooks/useAppTheme';
 import { useAppStore } from '@/store/appStore';
+import { SettleApiService } from '@/services/api/settleApi';
 
 // Custom SVG Google Icon Component
 const GoogleLogo = () => (
@@ -47,6 +48,8 @@ export default function SignUpScreen() {
   const router = useRouter();
   const { returnUrl } = useLocalSearchParams<{ returnUrl?: string }>();
 
+  const [step, setStep] = useState<'DETAILS' | 'OTP'>('DETAILS');
+  const [otp, setOtp] = useState('');
   const [name, setName] = useState('');
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
@@ -56,8 +59,6 @@ export default function SignUpScreen() {
   const [googleLoading, setGoogleLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  const register = useAppStore((state) => state.register);
-
   const navigatePostAuth = () => {
     if (returnUrl) {
       router.replace(decodeURIComponent(returnUrl) as any);
@@ -66,7 +67,7 @@ export default function SignUpScreen() {
     }
   };
 
-  const handleSignUp = async () => {
+  const handleRequestSignUpOtp = async () => {
     setError(null);
     const cleanName = name.trim();
     const cleanEmail = email.trim();
@@ -77,8 +78,8 @@ export default function SignUpScreen() {
       setError('Please enter your full name');
       return;
     }
-    if (!cleanEmail) {
-      setError('Please enter your email address');
+    if (!cleanEmail || !cleanEmail.includes('@')) {
+      setError('Please enter a valid email address');
       return;
     }
     if (!cleanPass) {
@@ -96,11 +97,42 @@ export default function SignUpScreen() {
 
     try {
       setLoading(true);
-      await register(cleanName, cleanEmail, cleanPass);
-      navigatePostAuth();
+      await SettleApiService.sendOtp(cleanEmail, 'SIGNUP');
+      setStep('OTP');
     } catch (err: any) {
-      const msg = err.message || 'Registration failed. Please try again.';
-      setError(msg);
+      setError(err.message || 'Failed to send verification code. Please try again.');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleVerifyOtpAndSignUp = async () => {
+    setError(null);
+    const cleanOtp = otp.trim();
+    if (cleanOtp.length !== 6) {
+      setError('Please enter the complete 6-digit verification code');
+      return;
+    }
+
+    try {
+      setLoading(true);
+      const res = await SettleApiService.verifyOtp({
+        email: email.trim(),
+        purpose: 'SIGNUP',
+        otp: cleanOtp,
+        name: name.trim(),
+        password: password.trim(),
+      });
+
+      if ('tokens' in res && res.tokens) {
+        const { useAppStore } = await import('@/store/appStore');
+        await useAppStore.getState().initSession();
+        navigatePostAuth();
+      } else {
+        navigatePostAuth();
+      }
+    } catch (err: any) {
+      setError(err.message || 'Invalid or expired verification code');
     } finally {
       setLoading(false);
     }
@@ -181,136 +213,216 @@ export default function SignUpScreen() {
           )}
 
           {/* Form Fields */}
-          <View style={styles.formGroup}>
-            <Input
-              label="Full Name"
-              placeholder="Your Name"
-              autoCapitalize="words"
-              autoCorrect={false}
-              value={name}
-              onChangeText={(val) => {
-                setName(val);
-                if (error) setError(null);
-              }}
-              containerStyle={styles.inputContainer}
-            />
+          {step === 'DETAILS' ? (
+            <>
+              <View style={styles.formGroup}>
+                <Input
+                  label="Full Name"
+                  placeholder="Your Name"
+                  autoCapitalize="words"
+                  autoCorrect={false}
+                  value={name}
+                  onChangeText={(val) => {
+                    setName(val);
+                    if (error) setError(null);
+                  }}
+                  containerStyle={styles.inputContainer}
+                />
 
-            <Input
-              label="Email"
-              placeholder="you@example.com"
-              keyboardType="email-address"
-              autoCapitalize="none"
-              autoCorrect={false}
-              value={email}
-              onChangeText={(val) => {
-                setEmail(val);
-                if (error) setError(null);
-              }}
-              containerStyle={styles.inputContainer}
-            />
+                <Input
+                  label="Email"
+                  placeholder="you@example.com"
+                  keyboardType="email-address"
+                  autoCapitalize="none"
+                  autoCorrect={false}
+                  value={email}
+                  onChangeText={(val) => {
+                    setEmail(val);
+                    if (error) setError(null);
+                  }}
+                  containerStyle={styles.inputContainer}
+                />
 
-            <Input
-              label="Password"
-              placeholder="At least 8 characters"
-              secureTextEntry={!showPassword}
-              autoCapitalize="none"
-              autoCorrect={false}
-              value={password}
-              onChangeText={(val) => {
-                setPassword(val);
-                if (error) setError(null);
-              }}
-              containerStyle={styles.inputContainer}
-              iconRight={
-                <Pressable
-                  onPress={() => setShowPassword(!showPassword)}
-                  hitSlop={8}
-                  style={styles.eyeBtn}
-                >
-                  <Text variant="caption" weight="semibold" style={{ color: theme.colors.textMuted }}>
-                    {showPassword ? 'Hide' : 'Show'}
-                  </Text>
-                </Pressable>
-              }
-            />
+                <Input
+                  label="Password"
+                  placeholder="At least 8 characters"
+                  secureTextEntry={!showPassword}
+                  autoCapitalize="none"
+                  autoCorrect={false}
+                  value={password}
+                  onChangeText={(val) => {
+                    setPassword(val);
+                    if (error) setError(null);
+                  }}
+                  containerStyle={styles.inputContainer}
+                  iconRight={
+                    <Pressable
+                      onPress={() => setShowPassword(!showPassword)}
+                      hitSlop={8}
+                      style={styles.eyeBtn}
+                    >
+                      <Text variant="caption" weight="semibold" style={{ color: theme.colors.textMuted }}>
+                        {showPassword ? 'Hide' : 'Show'}
+                      </Text>
+                    </Pressable>
+                  }
+                />
 
-            <Input
-              label="Confirm password"
-              placeholder="Repeat your password"
-              secureTextEntry={!showPassword}
-              autoCapitalize="none"
-              autoCorrect={false}
-              value={confirmPassword}
-              onChangeText={(val) => {
-                setConfirmPassword(val);
-                if (error) setError(null);
-              }}
-              containerStyle={styles.inputContainer}
-            />
-          </View>
+                <Input
+                  label="Confirm password"
+                  placeholder="Repeat your password"
+                  secureTextEntry={!showPassword}
+                  autoCapitalize="none"
+                  autoCorrect={false}
+                  value={confirmPassword}
+                  onChangeText={(val) => {
+                    setConfirmPassword(val);
+                    if (error) setError(null);
+                  }}
+                  containerStyle={styles.inputContainer}
+                />
+              </View>
 
-          {/* Primary CTA: Create Account */}
-          <Pressable
-            disabled={loading || googleLoading}
-            onPress={handleSignUp}
-            style={({ pressed }) => [
-              styles.primaryBtn,
-              {
-                backgroundColor: theme.colors.primary,
-                opacity: loading || googleLoading ? 0.7 : pressed ? 0.88 : 1,
-              },
-            ]}
-          >
-            {loading ? (
-              <ActivityIndicator size="small" color={theme.colors.primaryForeground} />
-            ) : (
-              <Text
-                variant="body"
-                weight="bold"
-                style={{ color: theme.colors.primaryForeground }}
+              {/* Primary CTA: Send Verification Code */}
+              <Pressable
+                disabled={loading || googleLoading}
+                onPress={handleRequestSignUpOtp}
+                style={({ pressed }) => [
+                  styles.primaryBtn,
+                  {
+                    backgroundColor: theme.colors.primary,
+                    opacity: loading || googleLoading ? 0.7 : pressed ? 0.88 : 1,
+                  },
+                ]}
               >
-                Create account
-              </Text>
-            )}
-          </Pressable>
+                {loading ? (
+                  <ActivityIndicator size="small" color={theme.colors.primaryForeground} />
+                ) : (
+                  <Text
+                    variant="body"
+                    weight="bold"
+                    style={{ color: theme.colors.primaryForeground }}
+                  >
+                    Continue
+                  </Text>
+                )}
+              </Pressable>
 
-          {/* Divider */}
-          <View style={styles.dividerRow}>
-            <View style={[styles.dividerLine, { backgroundColor: theme.colors.border }]} />
-            <Text
-              variant="caption"
-              weight="medium"
-              style={[styles.dividerText, { color: theme.colors.textMuted }]}
-            >
-              or
-            </Text>
-            <View style={[styles.dividerLine, { backgroundColor: theme.colors.border }]} />
-          </View>
+              {/* Divider */}
+              <View style={styles.dividerRow}>
+                <View style={[styles.dividerLine, { backgroundColor: theme.colors.border }]} />
+                <Text
+                  variant="caption"
+                  weight="medium"
+                  style={[styles.dividerText, { color: theme.colors.textMuted }]}
+                >
+                  or
+                </Text>
+                <View style={[styles.dividerLine, { backgroundColor: theme.colors.border }]} />
+              </View>
 
-          {/* Alternative: Google Auth */}
-          <Pressable
-            disabled={loading || googleLoading}
-            onPress={handleGoogleAuth}
-            style={({ pressed }) => [
-              styles.secondaryBtn,
-              {
-                backgroundColor: theme.colors.surfaceSubtle,
-                borderColor: theme.colors.border,
-                opacity: googleLoading ? 0.6 : pressed ? 0.8 : 1,
-              },
-            ]}
-          >
-            {googleLoading ? (
-              <ActivityIndicator size="small" color={theme.colors.textPrimary} />
-            ) : (
-              <View style={styles.btnRow}>
-                <GoogleLogo />
-                <Text variant="body" weight="medium" style={{ color: theme.colors.textPrimary }}>
-                  Continue with Google
+              {/* Alternative: Google Auth */}
+              <Pressable
+                disabled={loading || googleLoading}
+                onPress={handleGoogleAuth}
+                style={({ pressed }) => [
+                  styles.secondaryBtn,
+                  {
+                    backgroundColor: theme.colors.surfaceSubtle,
+                    borderColor: theme.colors.border,
+                    opacity: googleLoading ? 0.6 : pressed ? 0.8 : 1,
+                  },
+                ]}
+              >
+                {googleLoading ? (
+                  <ActivityIndicator size="small" color={theme.colors.textPrimary} />
+                ) : (
+                  <View style={styles.btnRow}>
+                    <GoogleLogo />
+                    <Text variant="body" weight="medium" style={{ color: theme.colors.textPrimary }}>
+                      Continue with Google
+                    </Text>
+                  </View>
+                )}
+              </Pressable>
+            </>
+          ) : (
+            <>
+              <View style={[styles.otpInfoBox, { backgroundColor: theme.colors.surfaceSubtle, borderColor: theme.colors.border }]}>
+                <Text variant="bodySecondary" style={{ color: theme.colors.textSecondary }}>
+                  We sent a 6-digit verification code to{' '}
+                  <Text variant="bodySecondary" weight="bold" style={{ color: theme.colors.textPrimary }}>
+                    {email}
+                  </Text>
                 </Text>
               </View>
-            )}
-          </Pressable>
+
+              <View style={styles.formGroup}>
+                <Input
+                  label="6-Digit Verification Code"
+                  placeholder="123456"
+                  keyboardType="number-pad"
+                  maxLength={6}
+                  value={otp}
+                  onChangeText={(val) => {
+                    setOtp(val.replace(/[^0-9]/g, ''));
+                    if (error) setError(null);
+                  }}
+                  containerStyle={styles.inputContainer}
+                />
+              </View>
+
+              {/* Primary CTA: Verify & Create Account */}
+              <Pressable
+                disabled={loading || otp.length !== 6}
+                onPress={handleVerifyOtpAndSignUp}
+                style={({ pressed }) => [
+                  styles.primaryBtn,
+                  {
+                    backgroundColor: theme.colors.primary,
+                    opacity: loading || otp.length !== 6 ? 0.6 : pressed ? 0.88 : 1,
+                  },
+                ]}
+              >
+                {loading ? (
+                  <ActivityIndicator size="small" color={theme.colors.primaryForeground} />
+                ) : (
+                  <Text
+                    variant="body"
+                    weight="bold"
+                    style={{ color: theme.colors.primaryForeground }}
+                  >
+                    Verify & Create Account
+                  </Text>
+                )}
+              </Pressable>
+
+              {/* Resend / Change Details Row */}
+              <View style={{ flexDirection: 'row', justifyContent: 'space-between', marginTop: 16 }}>
+                <Pressable
+                  disabled={loading}
+                  onPress={handleRequestSignUpOtp}
+                  hitSlop={8}
+                >
+                  <Text variant="caption" weight="bold" style={{ color: theme.colors.primary }}>
+                    Resend Code
+                  </Text>
+                </Pressable>
+
+                <Pressable
+                  onPress={() => {
+                    setStep('DETAILS');
+                    setError(null);
+                  }}
+                  hitSlop={8}
+                >
+                  <Text variant="caption" weight="medium" style={{ color: theme.colors.textSecondary }}>
+                    Edit email / details
+                  </Text>
+                </Pressable>
+              </View>
+            </>
+          )}
 
           {/* Footer: Sign In Switch */}
           <View style={styles.footerRow}>
@@ -367,6 +479,13 @@ const styles = StyleSheet.create({
   },
   errorBanner: {
     paddingVertical: 10,
+    paddingHorizontal: 14,
+    borderRadius: 10,
+    borderWidth: 1,
+    marginBottom: 16,
+  },
+  otpInfoBox: {
+    paddingVertical: 12,
     paddingHorizontal: 14,
     borderRadius: 10,
     borderWidth: 1,
