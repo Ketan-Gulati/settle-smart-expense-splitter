@@ -3,6 +3,8 @@ import { SplitMethod } from '@prisma/client';
 import { GroupService } from '../groups/group.service';
 import { Money } from '../../utils/money';
 import { NotificationService } from '../notifications/notification.service';
+import { DashboardService } from '../dashboard/dashboard.service';
+import { RealtimeSyncService } from '../realtime/realtime.service';
 import {
   NotFoundError,
   ValidationError,
@@ -75,7 +77,7 @@ export class ExpenseService {
 
     // 3. Atomic Transaction Execution
     const expense = await prisma.$transaction(async (tx) => {
-      const created = await tx.expense.create({
+      const created = await (tx.expense as any).create({
         data: {
           groupId: input.groupId,
           description: input.description.trim(),
@@ -153,8 +155,6 @@ export class ExpenseService {
 
     // Invalidate Dashboard Cache & Broadcast Realtime Event
     try {
-      const { DashboardService } = await import('../dashboard/dashboard.service');
-      const { RealtimeSyncService } = await import('../realtime/realtime.service');
       const affectedUserIds = Array.from(new Set([input.paidByUserId, ...computedSplits.map((s) => s.userId)]));
       await DashboardService.invalidateUserDashboard(affectedUserIds);
       RealtimeSyncService.notifyUsers(affectedUserIds, { type: 'DATA_CHANGED', entity: 'EXPENSE', groupId: input.groupId });
@@ -203,9 +203,10 @@ export class ExpenseService {
     await GroupService.verifyMembership(existing.groupId, authenticatedUserId);
 
     // Enforce Lock Check: If locked, only creator or users in allowedEditorIds can edit
-    if (existing.isLocked) {
-      const isCreator = existing.createdByUserId === authenticatedUserId;
-      const isAllowed = existing.allowedEditorIds?.includes(authenticatedUserId);
+    const expData = existing as any;
+    if (expData.isLocked) {
+      const isCreator = expData.createdByUserId === authenticatedUserId;
+      const isAllowed = expData.allowedEditorIds?.includes(authenticatedUserId);
       if (!isCreator && !isAllowed) {
         throw new ForbiddenError(
           'This expense is locked by the creator. You must request edit access.',
@@ -324,11 +325,8 @@ export class ExpenseService {
     } catch (notifErr) {
       console.warn('Failed to send expense update notifications:', notifErr);
     }
-
     // Invalidate Dashboard Cache & Broadcast Realtime Event
     try {
-      const { DashboardService } = await import('../dashboard/dashboard.service');
-      const { RealtimeSyncService } = await import('../realtime/realtime.service');
       const allMembers = await prisma.groupMember.findMany({
         where: { groupId: updated.groupId, leftAt: null },
         select: { userId: true },
@@ -343,9 +341,16 @@ export class ExpenseService {
     return this.mapExpenseResponse(updated);
   }
 
-  public static async deleteExpense(expenseId: string, authenticatedUserId: string): Promise<void> {
+  public static async deleteExpense(
+    expenseId: string,
+    authenticatedUserId: string,
+    idempotencyKey?: string
+  ): Promise<{ success: boolean; message: string }> {
     const existing = await prisma.expense.findUnique({
       where: { id: expenseId },
+      include: {
+        splits: true,
+      },
     });
 
     if (!existing || existing.deletedAt) {
@@ -354,17 +359,17 @@ export class ExpenseService {
 
     await GroupService.verifyMembership(existing.groupId, authenticatedUserId);
 
-    // Hardening Invariant: Check if active settlements exist in the group
-    // Deleting an expense after settlements are recorded invalidates historical debt reconciliations
-    const activeSettlementsCount = await prisma.settlement.count({
-      where: { groupId: existing.groupId, deletedAt: null },
-    });
-
-    if (activeSettlementsCount > 0) {
-      throw new ConflictError(
-        'Cannot delete expense after settlements have been recorded in this group. Historical debt records must be preserved.',
-        'CANNOT_DELETE_SETTLED_EXPENSE'
-      );
+    // Enforce Lock Protection
+    const expObj = existing as any;
+    if (expObj.isLocked) {
+      const isCreator = expObj.createdByUserId === authenticatedUserId;
+      const isAllowed = expObj.allowedEditorIds?.includes(authenticatedUserId);
+      if (!isCreator && !isAllowed) {
+        throw new ForbiddenError(
+          'This expense is locked by its creator. You must request edit access before deleting it.',
+          'EXPENSE_LOCKED'
+        );
+      }
     }
 
     await prisma.$transaction(async (tx) => {
@@ -379,15 +384,17 @@ export class ExpenseService {
           eventType: 'EXPENSE_DELETED',
           entityType: 'EXPENSE',
           entityId: expenseId,
-          metadata: { groupId: existing.groupId },
+          metadata: {
+            idempotencyKey,
+            groupId: existing.groupId,
+            deletedAt: new Date().toISOString(),
+          },
         },
       });
     });
 
     // Invalidate Dashboard Cache & Broadcast Realtime Event
     try {
-      const { DashboardService } = await import('../dashboard/dashboard.service');
-      const { RealtimeSyncService } = await import('../realtime/realtime.service');
       const allMembers = await prisma.groupMember.findMany({
         where: { groupId: existing.groupId, leftAt: null },
         select: { userId: true },
@@ -398,6 +405,7 @@ export class ExpenseService {
     } catch (cacheErr) {
       console.warn('Failed to invalidate dashboard cache on expense deletion:', cacheErr);
     }
+    return { success: true, message: 'Expense deleted successfully' };
   }
 
   public static async getGroupExpenses(
@@ -599,7 +607,8 @@ export class ExpenseService {
       select: { name: true },
     });
     const requesterName = requester?.name || 'A group member';
-    const targetRecipientId = expense.createdByUserId || expense.paidByUserId;
+    const expObj = expense as any;
+    const targetRecipientId = expObj.createdByUserId || expObj.paidByUserId;
 
     if (targetRecipientId === authenticatedUserId) {
       return { success: true, message: 'You already have edit access to this expense.' };
@@ -621,7 +630,7 @@ export class ExpenseService {
 
     return {
       success: true,
-      message: `Request sent to ${expense.createdByUserId ? 'creator' : 'payer'}. You will be notified once approved.`,
+      message: `Request sent to ${expObj.createdByUserId ? 'creator' : 'payer'}. You will be notified once approved.`,
     };
   }
 

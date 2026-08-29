@@ -274,7 +274,7 @@ export class AuthController {
         throw new Error('Failed to exchange authorization code with Google');
       }
 
-      const tokenData = await tokenRes.json();
+      const tokenData = (await tokenRes.json()) as any;
 
       // Fetch user profile from Google OpenID userinfo
       const userinfoRes = await fetch('https://openidconnect.googleapis.com/v1/userinfo', {
@@ -285,7 +285,7 @@ export class AuthController {
         throw new Error('Failed to fetch verified user identity from Google');
       }
 
-      const profile = await userinfoRes.json();
+      const profile = (await userinfoRes.json()) as any;
 
       const result = await AuthService.handleGoogleOAuth(
         {

@@ -2,6 +2,8 @@ import { prisma } from '../../infrastructure/database/prisma';
 import { GroupService } from '../groups/group.service';
 import { NotificationService } from '../notifications/notification.service';
 import { BalanceService } from '../balances/balance.service';
+import { DashboardService } from '../dashboard/dashboard.service';
+import { RealtimeSyncService } from '../realtime/realtime.service';
 import {
   ValidationError,
   FinancialInvariantError,
@@ -128,8 +130,6 @@ export class SettlementService {
 
       // 3. Invalidate Dashboard Cache & Broadcast Realtime Event
       try {
-        const { DashboardService } = await import('../dashboard/dashboard.service');
-        const { RealtimeSyncService } = await import('../realtime/realtime.service');
         const allMembers = await prisma.groupMember.findMany({
           where: { groupId, leftAt: null },
           select: { userId: true },
