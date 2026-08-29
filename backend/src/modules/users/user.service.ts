@@ -30,7 +30,7 @@ export function generateSettleId(name: string, userId: string): string {
     .split(' ')[0]!
     .toLowerCase()
     .replace(/[^a-z0-9]/g, '') || 'settler';
-  
+
   // Extract a deterministic 2-digit number from userId hex
   const hex = userId.replace(/[^0-9a-f]/gi, '').slice(0, 4);
   const num = (parseInt(hex, 16) % 90) + 10; // Guarantees clean 2-digit number (10..99)
@@ -160,7 +160,7 @@ export class UserService {
 
     // 1. Direct Email Match (exact or prefix for email)
     const isEmailQuery = normalizedQuery.includes('@');
-    
+
     // 2. Direct Settle ID match check
     // Settle IDs are in format prefix_xxxx (where xxxx is 4-character hex/id suffix)
     const settleIdMatch = normalizedQuery.match(/^([a-z0-9]+)_([a-z0-9]{4})$/);
@@ -389,39 +389,54 @@ export class UserService {
     }
 
     await prisma.$transaction(async (tx) => {
-      // 1. Soft-delete / deactivate user and anonymize personal identifiers for privacy compliance
-      await tx.user.update({
-        where: { id: userId },
-        data: {
-          isActive: false,
-          name: 'Deleted User',
-          avatarUrl: null,
+      // 1. Delete user's active refresh tokens & verification tokens
+      await tx.refreshToken.deleteMany({ where: { userId } });
+      await tx.emailVerificationToken.deleteMany({ where: { userId } });
+      await tx.passwordResetToken.deleteMany({ where: { userId } });
+      await tx.account.deleteMany({ where: { userId } });
+
+      // 2. Delete comments made by user
+      await (tx as any).expenseComment.deleteMany({ where: { userId } });
+
+      // 3. Remove user splits & expenses where user paid
+      await tx.expenseSplit.deleteMany({ where: { userId } });
+      await tx.expense.deleteMany({ where: { paidByUserId: userId } });
+
+      // 4. Remove settlements involving user
+      await tx.settlement.deleteMany({
+        where: {
+          OR: [{ fromUserId: userId }, { toUserId: userId }],
         },
       });
 
-      // 2. Mark group memberships as left
-      await tx.groupMember.updateMany({
-        where: { userId, leftAt: null },
-        data: { leftAt: new Date() },
-      });
+      // 5. Remove group memberships & invitations created
+      await tx.groupMember.deleteMany({ where: { userId } });
+      await tx.groupInvitation.deleteMany({ where: { createdByUserId: userId } });
 
-      // 3. Revoke all refresh tokens
-      await tx.refreshToken.updateMany({
-        where: { userId, revokedAt: null },
-        data: { revokedAt: new Date() },
-      });
+      // 6. Transfer or delete groups created by user if empty
+      const userGroups = await tx.group.findMany({ where: { createdBy: userId } });
+      for (const g of userGroups) {
+        const remainingMembers = await tx.groupMember.findMany({
+          where: { groupId: g.id },
+          take: 1,
+        });
+        if (remainingMembers.length > 0) {
+          await tx.group.update({
+            where: { id: g.id },
+            data: { createdBy: remainingMembers[0].userId },
+          });
+        } else {
+          await tx.group.delete({ where: { id: g.id } });
+        }
+      }
 
-      // 4. Log audit trail
-      await tx.auditEvent.create({
-        data: {
-          actorUserId: userId,
-          eventType: 'USER_DELETED_ACCOUNT',
-          entityType: 'USER',
-          entityId: userId,
-        },
-      });
+      // 7. Delete user audit events
+      await tx.auditEvent.deleteMany({ where: { actorUserId: userId } });
+
+      // 8. Permanently delete the user row from the database
+      await tx.user.delete({ where: { id: userId } });
     });
 
-    return { message: 'Your account has been deleted successfully. We are sorry to see you go.' };
+    return { message: 'Your account and all associated data have been permanently deleted.' };
   }
 }

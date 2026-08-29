@@ -37,8 +37,8 @@ export default function AuthCallbackScreen() {
         await TokenStorage.setRefreshToken(refresh);
         
         try {
-          const user = await SettleApiService.getMe();
-          useAppStore.setState({ currentUser: user, isAuthenticated: true, isSessionLoading: false });
+          const userRes = await SettleApiService.getMe();
+          useAppStore.setState({ currentUser: userRes, isAuthenticated: true, isSessionLoading: false });
         } catch {
           await initSession();
         }

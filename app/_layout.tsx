@@ -20,6 +20,9 @@ export default function RootLayout() {
   useEffect(() => {
     if (!isReady || isSessionLoading) return;
 
+    const isCallback = segments[0] === 'auth' && segments[1] === 'callback';
+    if (isCallback) return; // Allow auth/callback to process tokens without interference
+
     const inAuthGroup = segments[0] === 'auth' || segments[0] === 'onboarding';
 
     if (!isAuthenticated && !inAuthGroup) {
