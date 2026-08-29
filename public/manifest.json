@@ -1,0 +1,24 @@
+{
+  "short_name": "Settle",
+  "name": "Settle - Smart Debt Simplifier",
+  "description": "Split expenses with friends easily with zero-sum debt simplification.",
+  "icons": [
+    {
+      "src": "/icon-192.png",
+      "type": "image/png",
+      "sizes": "192x192",
+      "purpose": "any maskable"
+    },
+    {
+      "src": "/icon-512.png",
+      "type": "image/png",
+      "sizes": "512x512",
+      "purpose": "any maskable"
+    }
+  ],
+  "start_url": "/",
+  "background_color": "#0A0D14",
+  "theme_color": "#0A0D14",
+  "display": "standalone",
+  "orientation": "portrait"
+}
