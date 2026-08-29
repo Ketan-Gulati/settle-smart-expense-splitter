@@ -15,6 +15,11 @@
         "backgroundColor": "#0F172A"
       }
     },
+    "splash": {
+      "image": "./assets/icon.png",
+      "resizeMode": "contain",
+      "backgroundColor": "#0A0D14"
+    },
     "web": {
       "favicon": "./assets/favicon.png",
       "bundler": "metro",
@@ -23,7 +28,12 @@
       "backgroundColor": "#0A0D14",
       "themeColor": "#0A0D14",
       "display": "standalone",
-      "orientation": "portrait"
+      "orientation": "portrait",
+      "splash": {
+        "image": "./assets/icon.png",
+        "resizeMode": "contain",
+        "backgroundColor": "#0A0D14"
+      }
     },
     "plugins": [
       "expo-router",
