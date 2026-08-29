@@ -12,6 +12,7 @@
     "format": "prettier --check \"src/**/*.{ts,tsx}\" \"app/**/*.{ts,tsx}\" \"tests/**/*.{ts,tsx}\"",
     "format:fix": "prettier --write \"src/**/*.{ts,tsx}\" \"app/**/*.{ts,tsx}\" \"tests/**/*.{ts,tsx}\"",
     "typecheck": "tsc --noEmit",
+    "build": "expo export -p web",
     "test": "jest"
   },
   "dependencies": {
