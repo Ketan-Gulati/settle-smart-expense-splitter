@@ -8,6 +8,7 @@ import {
   DetailHeader,
   MoneyDisplay,
   Avatar,
+  Icon,
   ExpenseActivityRow,
   EmptyState,
   GroupAnalyticsCharts,
@@ -15,7 +16,7 @@ import {
 } from '@/components';
 import { useAppTheme } from '@/hooks/useAppTheme';
 import { SettleApiService } from '@/services/api/settleApi';
-import { GroupDTO, ExpenseDTO, GroupBalancesDTO, UserDTO } from '@/services/api/types';
+import { GroupDTO, GroupMemberDTO, ExpenseDTO, GroupBalancesDTO, UserDTO } from '@/services/api/types';
 import { useAppStore } from '@/store/appStore';
 import { shareGroupInvite, copyToClipboard, buildInviteUrl } from '@/services/invitations/inviteUtils';
 
@@ -49,6 +50,9 @@ export default function GroupOverviewScreen() {
   const [error, setError] = useState<string | null>(null);
   const [inviteModalVisible, setInviteModalVisible] = useState(false);
   const [membersModalVisible, setMembersModalVisible] = useState(false);
+  const [memberToRemove, setMemberToRemove] = useState<GroupMemberDTO | null>(null);
+  const [removingMember, setRemovingMember] = useState(false);
+  const [removeMemberError, setRemoveMemberError] = useState<string | null>(null);
   const [copiedCode, setCopiedCode] = useState(false);
   const [regeneratingInvite, setRegeneratingInvite] = useState(false);
 
@@ -185,6 +189,21 @@ export default function GroupOverviewScreen() {
   const onRefresh = () => {
     setRefreshing(true);
     loadGroupDetails();
+  };
+
+  const handleConfirmRemoveMember = async () => {
+    if (!id || !memberToRemove) return;
+    try {
+      setRemovingMember(true);
+      setRemoveMemberError(null);
+      await SettleApiService.removeGroupMember(id, memberToRemove.userId);
+      setMemberToRemove(null);
+      await loadGroupDetails();
+    } catch (err: any) {
+      setRemoveMemberError(err?.message || 'Failed to remove member. Ensure their balance is settled up.');
+    } finally {
+      setRemovingMember(false);
+    }
   };
 
   // Filtered expenses for selected time duration (Hook MUST be declared before any conditional early returns):
@@ -955,6 +974,8 @@ export default function GroupOverviewScreen() {
                   group.members.map((member) => {
                     const isOwner = member.role === 'OWNER' || member.userId === group.createdBy;
                     const isMe = member.userId === currentUser?.id;
+                    const isGroupCreator = group?.createdBy === currentUser?.id;
+                    const canRemoveThisMember = isGroupCreator && !isOwner && !isMe;
 
                     return (
                       <View
@@ -982,6 +1003,7 @@ export default function GroupOverviewScreen() {
                             </Text>
                           )}
                         </View>
+
                         {isOwner && (
                           <View
                             style={[
@@ -993,6 +1015,22 @@ export default function GroupOverviewScreen() {
                               Owner
                             </Text>
                           </View>
+                        )}
+
+                        {canRemoveThisMember && (
+                          <Pressable
+                            onPress={() => {
+                              setRemoveMemberError(null);
+                              setMemberToRemove(member);
+                            }}
+                            hitSlop={8}
+                            style={[
+                              styles.removeMemberBtn,
+                              { backgroundColor: theme.isDark ? 'rgba(239, 68, 68, 0.15)' : '#FEE2E2' },
+                            ]}
+                          >
+                            <Icon name="trash-outline" size={16} color={theme.colors.negative} />
+                          </Pressable>
                         )}
                       </View>
                     );
@@ -1012,6 +1050,67 @@ export default function GroupOverviewScreen() {
               onPress={() => setMembersModalVisible(false)}
               style={{ marginTop: 8 }}
             />
+          </Pressable>
+        </Pressable>
+      </Modal>
+
+      {/* Confirmation Modal to Remove Member */}
+      <Modal
+        visible={!!memberToRemove}
+        animationType="fade"
+        transparent
+        onRequestClose={() => {
+          if (!removingMember) setMemberToRemove(null);
+        }}
+      >
+        <Pressable
+          style={[styles.modalOverlay, { backgroundColor: theme.colors.overlay }]}
+          onPress={() => {
+            if (!removingMember) setMemberToRemove(null);
+          }}
+        >
+          <Pressable
+            style={[styles.confirmRemoveModalContent, { backgroundColor: theme.colors.surface }]}
+            onPress={(e) => e.stopPropagation()}
+          >
+            <View style={[styles.removeIconCircle, { backgroundColor: theme.isDark ? 'rgba(239, 68, 68, 0.2)' : '#FEE2E2' }]}>
+              <Icon name="trash-outline" size={24} color={theme.colors.negative} />
+            </View>
+
+            <Text variant="title" weight="bold" align="center" style={{ marginTop: 8 }}>
+              Remove {memberToRemove?.name}?
+            </Text>
+
+            <Text variant="bodySecondary" color={theme.colors.textMuted} align="center">
+              Are you sure you want to remove <Text variant="bodySecondary" weight="bold" color={theme.colors.textPrimary}>{memberToRemove?.name}</Text> from <Text variant="bodySecondary" weight="bold" color={theme.colors.textPrimary}>{group?.name}</Text>?
+            </Text>
+
+            {removeMemberError && (
+              <View style={[styles.removeErrorBox, { backgroundColor: theme.isDark ? 'rgba(239, 68, 68, 0.15)' : '#FEE2E2', borderColor: theme.colors.negative }]}>
+                <Text variant="caption" color={theme.colors.negative} style={{ textAlign: 'center' }}>
+                  {removeMemberError}
+                </Text>
+              </View>
+            )}
+
+            <View style={styles.confirmRemoveButtons}>
+              <Button
+                title="Cancel"
+                variant="subtle"
+                size="medium"
+                disabled={removingMember}
+                onPress={() => setMemberToRemove(null)}
+                style={{ flex: 1 }}
+              />
+              <Button
+                title={removingMember ? 'Removing...' : 'Remove Member'}
+                variant="destructive"
+                size="medium"
+                loading={removingMember}
+                onPress={handleConfirmRemoveMember}
+                style={{ flex: 1.2 }}
+              />
+            </View>
           </Pressable>
         </Pressable>
       </Modal>
@@ -1457,6 +1556,42 @@ const styles = StyleSheet.create({
     paddingHorizontal: 8,
     paddingVertical: 4,
     borderRadius: 8,
+  },
+  removeMemberBtn: {
+    width: 32,
+    height: 32,
+    borderRadius: 16,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  confirmRemoveModalContent: {
+    borderRadius: 24,
+    padding: 24,
+    gap: 16,
+    maxWidth: 380,
+    width: '90%',
+    alignSelf: 'center',
+    alignItems: 'center',
+  },
+  removeIconCircle: {
+    width: 52,
+    height: 52,
+    borderRadius: 26,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  removeErrorBox: {
+    paddingVertical: 8,
+    paddingHorizontal: 12,
+    borderRadius: 8,
+    borderWidth: 1,
+    width: '100%',
+  },
+  confirmRemoveButtons: {
+    flexDirection: 'row',
+    gap: 12,
+    width: '100%',
+    marginTop: 8,
   },
   expenseTotalSummaryCard: {
     padding: 14,

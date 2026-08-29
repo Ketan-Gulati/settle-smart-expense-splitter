@@ -233,6 +233,10 @@ export class SettleApiService {
     await ApiClient.post(`/groups/${groupId}/members`, { userId });
   }
 
+  public static async removeGroupMember(groupId: string, userId: string): Promise<void> {
+    await ApiClient.delete(`/groups/${groupId}/members/${userId}`);
+  }
+
   public static async createGroupInvite(groupId: string): Promise<import('./types').GroupInvitationDTO> {
     const res = await ApiClient.post<import('./types').GroupInvitationDTO>(`/groups/${groupId}/invites`, {});
     return res.data;
