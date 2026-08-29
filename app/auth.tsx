@@ -106,7 +106,8 @@ export default function LoginScreen() {
       setGoogleLoading(true);
       setError(null);
       const stateParam = returnUrl ? encodeURIComponent(returnUrl) : '';
-      const googleAuthUrl = `http://localhost:5000/api/v1/auth/google?state=${stateParam}`;
+      const apiRoot = (process.env.EXPO_PUBLIC_API_BASE_URL || 'https://settle-smart-expense-splitter.onrender.com/api/v1').replace(/\/api\/v1\/?$/, '');
+      const googleAuthUrl = `${apiRoot}/api/v1/auth/google?state=${stateParam}`;
       if (Platform.OS === 'web' && typeof window !== 'undefined') {
         window.location.href = googleAuthUrl;
       } else {

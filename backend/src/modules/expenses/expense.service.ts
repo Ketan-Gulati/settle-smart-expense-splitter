@@ -8,7 +8,6 @@ import { RealtimeSyncService } from '../realtime/realtime.service';
 import {
   NotFoundError,
   ValidationError,
-  ConflictError,
   ForbiddenError,
   FinancialInvariantError,
 } from '../../errors/AppError';
