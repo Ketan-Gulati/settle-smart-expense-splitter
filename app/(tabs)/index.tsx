@@ -17,6 +17,8 @@ import {
   SectionHeader,
   ExpenseActivityRow,
   NotificationSideMenu,
+  Icon,
+  OfflineSyncBanner,
 } from '@/components';
 import { useAppTheme } from '@/hooks/useAppTheme';
 import { homeFeedService, HomeDashboardData } from '@/services/homeFeedService';
@@ -27,13 +29,17 @@ export default function HomeScreen() {
   const router = useRouter();
   const dataVersion = useAppStore((s) => s.dataVersion);
 
-  const [data, setData] = useState<HomeDashboardData | null>(null);
-  const [loading, setLoading] = useState(true);
+  const cached = homeFeedService.getCachedData();
+  const [data, setData] = useState<HomeDashboardData | null>(cached);
+  const [loading, setLoading] = useState(!cached);
   const [refreshing, setRefreshing] = useState(false);
   const [sideMenuVisible, setSideMenuVisible] = useState(false);
 
   const loadDashboard = useCallback(async () => {
     try {
+      if (!homeFeedService.getCachedData()) {
+        setLoading(true);
+      }
       const dashboard = await homeFeedService.getHomeDashboardData();
       setData(dashboard);
     } catch (err) {
@@ -68,6 +74,7 @@ export default function HomeScreen() {
     totalOptimizedPaymentsCount,
     topGroups,
     recentActivity,
+    unreadNotificationCount,
   } = data;
 
   const isPositive = totalNetBalanceMinor > 0;
@@ -75,9 +82,10 @@ export default function HomeScreen() {
 
   return (
     <View style={[styles.container, { backgroundColor: theme.colors.background }]}>
-      {/* 1. App Header */}
+      {/* 1. App Header with Dynamic Notification Count Badge */}
       <AppHeader
         userName={user.name}
+        unreadCount={unreadNotificationCount}
         onAvatarPress={() => router.push('/profile' as any)}
         onMenuPress={() => setSideMenuVisible(true)}
       />
@@ -87,6 +95,9 @@ export default function HomeScreen() {
         visible={sideMenuVisible}
         onClose={() => setSideMenuVisible(false)}
       />
+
+      {/* Offline Sync Banner (Travel & No-Connection Auto-Sync) */}
+      <OfflineSyncBanner />
 
       <ScrollView
         contentContainerStyle={styles.content}
@@ -122,22 +133,28 @@ export default function HomeScreen() {
               style={({ pressed }) => [
                 styles.settleBanner,
                 {
-                  backgroundColor: theme.colors.primary,
+                  backgroundColor: theme.colors.surface,
+                  borderColor: theme.isDark ? 'rgba(2, 132, 199, 0.4)' : '#BAE6FD',
                   opacity: pressed ? 0.92 : 1,
                 },
               ]}
             >
               <View style={styles.bannerRow}>
-                <View style={{ gap: 4 }}>
-                  <Text variant="title" weight="bold" color="#FFFFFF">
-                    Review settlement →
-                  </Text>
-                  <Text variant="caption" weight="medium" style={{ color: 'rgba(255, 255, 255, 0.85)' }}>
-                    {totalOptimizedPaymentsCount} direct payment{totalOptimizedPaymentsCount > 1 ? 's' : ''} to zero all balances
-                  </Text>
+                <View style={styles.bannerLeft}>
+                  <View style={[styles.settleIconPill, { backgroundColor: theme.isDark ? 'rgba(2, 132, 199, 0.2)' : '#E0F2FE' }]}>
+                    <Icon name="flash" size={18} color={theme.colors.primary} />
+                  </View>
+                  <View style={{ gap: 2 }}>
+                    <Text variant="body" weight="bold" color={theme.colors.textPrimary}>
+                      Review Settlement
+                    </Text>
+                    <Text variant="caption" color={theme.colors.textMuted}>
+                      {totalOptimizedPaymentsCount} direct payment{totalOptimizedPaymentsCount > 1 ? 's' : ''} to zero all balances
+                    </Text>
+                  </View>
                 </View>
-                <View style={styles.settleBadgeRight}>
-                  <Text style={styles.settleArrowIcon}>⚡</Text>
+                <View style={[styles.settleArrowBtn, { backgroundColor: theme.colors.primary }]}>
+                  <Icon name="arrow-back" size={16} color="#FFFFFF" style={{ transform: [{ rotate: '180deg' }] }} />
                 </View>
               </View>
             </Pressable>
@@ -279,26 +296,35 @@ const styles = StyleSheet.create({
     gap: 10,
   },
   settleBanner: {
-    borderRadius: 16,
-    paddingHorizontal: 20,
-    paddingVertical: 18,
-    gap: 6,
-    shadowColor: '#0284C7',
-    shadowOffset: { width: 0, height: 6 },
-    shadowOpacity: 0.25,
-    shadowRadius: 12,
-    elevation: 4,
+    borderRadius: 14,
+    borderWidth: 1,
+    paddingHorizontal: 16,
+    paddingVertical: 14,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.05,
+    shadowRadius: 8,
+    elevation: 2,
   },
-  settleBadgeRight: {
-    width: 36,
-    height: 36,
-    borderRadius: 18,
-    backgroundColor: 'rgba(255, 255, 255, 0.2)',
+  bannerLeft: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 12,
+    flex: 1,
+  },
+  settleIconPill: {
+    width: 38,
+    height: 38,
+    borderRadius: 10,
     alignItems: 'center',
     justifyContent: 'center',
   },
-  settleArrowIcon: {
-    fontSize: 18,
+  settleArrowBtn: {
+    width: 32,
+    height: 32,
+    borderRadius: 16,
+    alignItems: 'center',
+    justifyContent: 'center',
   },
   addExpenseHomeBtn: {
     borderRadius: 14,

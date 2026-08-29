@@ -44,19 +44,31 @@ export class BalanceService {
    * Returns a map of userId -> netBalanceMinor (bigint).
    */
   public static async calculateGroupNetBalances(groupId: string): Promise<Map<string, bigint>> {
-    const [expenses, settlements, members] = await Promise.all([
-      prisma.expense.findMany({
-        where: { groupId, deletedAt: null },
-        include: { splits: true },
-      }),
-      prisma.settlement.findMany({
-        where: { groupId, deletedAt: null },
-      }),
-      prisma.groupMember.findMany({
-        where: { groupId, leftAt: null },
-        select: { userId: true },
-      }),
-    ]);
+    const fetchWithRetry = async (retries = 2): Promise<any> => {
+      try {
+        return await Promise.all([
+          prisma.expense.findMany({
+            where: { groupId, deletedAt: null },
+            include: { splits: true },
+          }),
+          prisma.settlement.findMany({
+            where: { groupId, deletedAt: null },
+          }),
+          prisma.groupMember.findMany({
+            where: { groupId, leftAt: null },
+            select: { userId: true },
+          }),
+        ]);
+      } catch (err) {
+        if (retries > 0) {
+          await new Promise((r) => setTimeout(r, 400));
+          return fetchWithRetry(retries - 1);
+        }
+        throw err;
+      }
+    };
+
+    const [expenses, settlements, members] = await fetchWithRetry();
 
     const netMap = new Map<string, bigint>();
     for (const m of members) {

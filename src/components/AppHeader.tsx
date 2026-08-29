@@ -1,8 +1,10 @@
 import React from 'react';
 import { View, StyleSheet, Pressable, ViewStyle, Image } from 'react-native';
+import { Text } from './Text';
 import { Avatar } from './Avatar';
 import { Icon } from './Icon';
 import { useAppTheme } from '@/hooks/useAppTheme';
+import { useAppStore } from '@/store/appStore';
 
 export interface AppHeaderProps {
   userName?: string;
@@ -19,13 +21,21 @@ const LOGO_URL = 'https://res.cloudinary.com/dxanpvaub/image/upload/v1787513935/
 export const AppHeader: React.FC<AppHeaderProps> = ({
   userName = 'Alex',
   avatarUrl,
-  unreadCount = 0,
+  unreadCount: explicitUnreadCount,
   onAvatarPress,
   onMenuPress,
   onSettingsPress,
   style,
 }) => {
   const theme = useAppTheme();
+  const storeUnreadCount = useAppStore((s) => s.unreadNotificationCount);
+  const fetchUnreadCount = useAppStore((s) => s.fetchUnreadNotificationCount);
+
+  React.useEffect(() => {
+    fetchUnreadCount();
+  }, [fetchUnreadCount]);
+
+  const unreadCount = explicitUnreadCount !== undefined ? explicitUnreadCount : storeUnreadCount;
 
   return (
     <View style={[styles.header, { backgroundColor: theme.colors.background }, style]}>
@@ -48,7 +58,11 @@ export const AppHeader: React.FC<AppHeaderProps> = ({
       <Pressable onPress={onMenuPress || onSettingsPress} style={styles.iconButton}>
         <Icon name="menu-outline" size={24} color={theme.colors.textPrimary} />
         {unreadCount > 0 && (
-          <View style={[styles.badgeDot, { backgroundColor: theme.colors.primary }]} />
+          <View style={[styles.badgeNumberWrap, { backgroundColor: theme.colors.primary }]}>
+            <Text style={styles.badgeNumberText}>
+              {unreadCount > 99 ? '99+' : unreadCount}
+            </Text>
+          </View>
         )}
       </Pressable>
     </View>
@@ -94,13 +108,24 @@ const styles = StyleSheet.create({
     zIndex: 10,
     position: 'relative',
   },
-  badgeDot: {
+  badgeNumberWrap: {
     position: 'absolute',
-    top: 8,
-    right: 4,
-    width: 8,
-    height: 8,
-    borderRadius: 4,
+    top: 4,
+    right: -2,
+    minWidth: 18,
+    height: 18,
+    borderRadius: 9,
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingHorizontal: 4,
+    borderWidth: 1.5,
+    borderColor: '#0F172A',
+  },
+  badgeNumberText: {
+    color: '#FFFFFF',
+    fontSize: 10,
+    fontWeight: '700',
+    textAlign: 'center',
   },
   gearIcon: {
     fontSize: 22,

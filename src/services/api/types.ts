@@ -25,8 +25,23 @@ export interface UserDTO {
   createdAt?: string;
 }
 
-export type NotificationType = 'GROUP_INVITE' | 'INVITE_ACCEPTED' | 'INVITE_REJECTED' | 'EXPENSE_ADDED' | 'GENERAL';
 export type NotificationStatus = 'PENDING' | 'ACCEPTED' | 'REJECTED' | 'READ';
+
+export type NotificationType =
+  | 'GROUP_MEMBER_JOINED'
+  | 'EXPENSE_ADDED'
+  | 'EXPENSE_UPDATED'
+  | 'EXPENSE_EDIT_REQUEST'
+  | 'EXPENSE_EDIT_GRANTED'
+  | 'EXPENSE_EDIT_DENIED'
+  | 'PAYMENT_RECEIVED'
+  | 'GROUP_SETTLED_UP'
+  | 'GROUP_INVITE'
+  | 'INVITE_ACCEPTED'
+  | 'INVITE_REJECTED'
+  | 'PAYMENT_REMINDER'
+  | 'RECURRING_BILL_DUE'
+  | 'GENERAL';
 
 export interface NotificationDTO {
   id: string;
@@ -37,6 +52,9 @@ export interface NotificationDTO {
   type: NotificationType;
   groupId?: string;
   groupName?: string;
+  expenseId?: string;
+  expenseTitle?: string;
+  amountMinor?: number;
   status: NotificationStatus;
   title: string;
   message: string;
@@ -85,6 +103,8 @@ export interface InvitePreviewDTO {
   memberCount: number;
   members: Array<{ id: string; name: string; avatarUrl: string | null }>;
   inviteCode: string;
+  totalSpentMinor?: number;
+  expenseCount?: number;
 }
 
 export interface UserSearchDTO {
@@ -121,6 +141,12 @@ export interface ExpenseDTO {
   description: string;
   amountMinor: number;
   currency: string;
+  originalAmountMinor?: number;
+  originalCurrency?: string;
+  exchangeRate?: number;
+  isLocked?: boolean;
+  createdByUserId?: string;
+  allowedEditorIds?: string[];
   paidByUserId: string;
   paidByUserName: string;
   splitMethod: string;
@@ -169,6 +195,7 @@ export interface PersonBalanceDetailDTO {
 export interface SettlementDTO {
   id: string;
   groupId: string;
+  groupName?: string;
   fromUserId: string;
   fromUserName: string;
   toUserId: string;
@@ -207,4 +234,28 @@ export interface DashboardDTO {
   totalNetBalanceMinor: number;
   groups: DashboardGroupCardDTO[];
   recentActivity: ActivityEventDTO[];
+}
+
+export interface RecurringScheduleDTO {
+  id: string;
+  groupId: string;
+  groupName?: string;
+  title: string;
+  amountMinor: number;
+  currency: string;
+  category: string | null;
+  paidByUserId: string;
+  paidByUserName: string;
+  splitMethod: string;
+  frequency: 'WEEKLY' | 'BIWEEKLY' | 'MONTHLY' | 'YEARLY';
+  behavior: 'AUTO_ADD' | 'REMIND_CONFIRM';
+  dayOfMonth: number | null;
+  dayOfWeek: number | null;
+  startDate: string;
+  endDate: string | null;
+  nextOccurrenceAt: string;
+  lastGeneratedAt: string | null;
+  isActive: boolean;
+  createdAt: string;
+  updatedAt: string;
 }

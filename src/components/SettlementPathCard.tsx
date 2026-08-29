@@ -6,6 +6,12 @@ import { MoneyDisplay } from './MoneyDisplay';
 import { StatusBadge } from './StatusBadge';
 import { useAppTheme } from '@/hooks/useAppTheme';
 
+export interface BreakdownItem {
+  description: string;
+  amountMinor: number;
+  type: 'OWED' | 'BORROWED'; // OWED: debtor owes creditor (+), BORROWED: creditor owes debtor (-)
+}
+
 export interface SettlementPathCardProps {
   debtorName: string;
   creditorName: string;
@@ -15,8 +21,10 @@ export interface SettlementPathCardProps {
   isCurrentUserDebtor?: boolean;
   isCurrentUserCreditor?: boolean;
   onSettlePress?: () => void;
+  onRequestPress?: () => void;
   explanationQuestion?: string;
   explanationAnswer?: string;
+  breakdownItems?: BreakdownItem[];
   style?: ViewStyle;
 }
 
@@ -29,8 +37,10 @@ export const SettlementPathCard: React.FC<SettlementPathCardProps> = ({
   isCurrentUserDebtor = false,
   isCurrentUserCreditor = false,
   onSettlePress,
-  explanationQuestion = 'Why am I paying this person?',
+  onRequestPress,
+  explanationQuestion,
   explanationAnswer,
+  breakdownItems,
   style,
 }) => {
   const theme = useAppTheme();
@@ -41,6 +51,8 @@ export const SettlementPathCard: React.FC<SettlementPathCardProps> = ({
     if (isCurrentUserCreditor) return theme.isDark ? 'rgba(16, 185, 129, 0.4)' : '#6EE7B7';
     return theme.colors.border;
   };
+
+  const defaultQuestion = `Why is ${debtorName} paying ${creditorName} ₹${(amountMinor / 100).toFixed(2)}?`;
 
   return (
     <View
@@ -114,36 +126,90 @@ export const SettlementPathCard: React.FC<SettlementPathCardProps> = ({
         )}
 
         {isCurrentUserCreditor && (
-          <View style={[styles.statusPill, { backgroundColor: 'rgba(16, 185, 129, 0.15)' }]}>
-            <Text variant="caption" weight="bold" style={{ color: '#10B981' }}>
-              Pending Receipt
-            </Text>
+          <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
+            {onRequestPress && (
+              <Pressable
+                onPress={onRequestPress}
+                style={({ pressed }) => [
+                  styles.actionButton,
+                  { backgroundColor: '#10B981', opacity: pressed ? 0.9 : 1 },
+                ]}
+              >
+                <Text variant="body" weight="bold" color="#FFFFFF">
+                  Request ₹{(amountMinor / 100).toFixed(0)} ➔
+                </Text>
+              </Pressable>
+            )}
+            <View style={[styles.statusPill, { backgroundColor: 'rgba(16, 185, 129, 0.15)' }]}>
+              <Text variant="caption" weight="bold" style={{ color: '#10B981' }}>
+                Pending
+              </Text>
+            </View>
           </View>
         )}
       </View>
 
-      {explanationAnswer && (
-        <Pressable
-          onPress={() => setExpanded(!expanded)}
-          style={[styles.accordionHeader, { borderTopColor: theme.colors.borderSubtle }]}
-        >
-          <View style={styles.accordionTitle}>
-            <Text style={styles.lightbulb}>💡</Text>
-            <Text variant="caption" weight="medium" color={theme.colors.textSecondary}>
-              {explanationQuestion}
-            </Text>
-          </View>
-          <Text style={[styles.chevron, { color: theme.colors.textSecondary }]}>
-            {expanded ? '▲' : '▼'}
+      {/* Understandable "Why?" Reasoning Accordion */}
+      <Pressable
+        onPress={() => setExpanded(!expanded)}
+        style={[styles.accordionHeader, { borderTopColor: theme.colors.borderSubtle }]}
+      >
+        <View style={styles.accordionTitle}>
+          <Text style={styles.lightbulb}>💡</Text>
+          <Text variant="caption" weight="semibold" color={theme.colors.primary}>
+            {explanationQuestion || defaultQuestion}
           </Text>
-        </Pressable>
-      )}
+        </View>
+        <Text style={[styles.chevron, { color: theme.colors.primary }]}>
+          {expanded ? '▲' : '▼'}
+        </Text>
+      </Pressable>
 
-      {expanded && explanationAnswer && (
-        <View style={styles.accordionContent}>
-          <Text variant="caption" color={theme.colors.textSecondary}>
-            {explanationAnswer}
-          </Text>
+      {expanded && (
+        <View style={[styles.accordionContent, { backgroundColor: theme.colors.surfaceSubtle }]}>
+          {breakdownItems && breakdownItems.length > 0 ? (
+            <View style={styles.breakdownTable}>
+              <Text variant="caption" weight="bold" color={theme.colors.textMuted} style={{ marginBottom: 6 }}>
+                Full balance breakdown between {debtorName} & {creditorName}:
+              </Text>
+              {breakdownItems.map((item, idx) => {
+                const isOwed = item.type === 'OWED';
+                return (
+                  <View key={idx} style={styles.breakdownRow}>
+                    <View style={{ flex: 1, flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+                      <Text style={{ fontSize: 13, color: isOwed ? '#10B981' : '#EF4444' }}>
+                        {isOwed ? '+' : '−'}
+                      </Text>
+                      <Text variant="bodySecondary" numberOfLines={1} style={{ flex: 1 }}>
+                        {item.description}
+                      </Text>
+                    </View>
+                    <Text
+                      variant="bodySecondary"
+                      weight="semibold"
+                      color={isOwed ? theme.colors.textPrimary : '#EF4444'}
+                    >
+                      {isOwed ? '' : '−'}₹{(item.amountMinor / 100).toFixed(2)}
+                    </Text>
+                  </View>
+                );
+              })}
+              <View style={[styles.breakdownDivider, { backgroundColor: theme.colors.border }]} />
+              <View style={styles.breakdownRow}>
+                <Text variant="bodySecondary" weight="bold">
+                  Net Settlement Total
+                </Text>
+                <Text variant="body" weight="bold" color={theme.colors.primary}>
+                  ₹{(amountMinor / 100).toFixed(2)}
+                </Text>
+              </View>
+            </View>
+          ) : (
+            <Text variant="caption" color={theme.colors.textSecondary} style={{ lineHeight: 18 }}>
+              {explanationAnswer ||
+                `This optimized single direct payment of ₹${(amountMinor / 100).toFixed(2)} directly zeroes out all shared net obligations between ${debtorName} and ${creditorName}.`}
+            </Text>
+          )}
         </View>
       )}
     </View>
@@ -152,25 +218,26 @@ export const SettlementPathCard: React.FC<SettlementPathCardProps> = ({
 
 const styles = StyleSheet.create({
   card: {
-    borderRadius: 18,
-    borderWidth: 1.5,
+    borderRadius: 14,
+    borderWidth: 1,
     overflow: 'hidden',
     shadowColor: '#000',
-    shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.1,
-    shadowRadius: 10,
-    elevation: 3,
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.05,
+    shadowRadius: 6,
+    elevation: 2,
   },
   headerRow: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
-    padding: 16,
+    paddingHorizontal: 14,
+    paddingVertical: 12,
   },
   memberBlock: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 10,
+    gap: 8,
     flex: 1,
   },
   memberBlockRight: {
@@ -185,46 +252,46 @@ const styles = StyleSheet.create({
   transferFlowCenter: {
     alignItems: 'center',
     justifyContent: 'center',
-    paddingHorizontal: 8,
+    paddingHorizontal: 6,
     gap: 2,
   },
   arrowGlyph: {
-    fontSize: 20,
-    fontWeight: '800',
+    fontSize: 16,
+    fontWeight: '700',
   },
   flowBadge: {
-    paddingHorizontal: 6,
-    paddingVertical: 2,
-    borderRadius: 6,
+    paddingHorizontal: 5,
+    paddingVertical: 1,
+    borderRadius: 4,
   },
   amountActionBar: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
-    paddingHorizontal: 16,
-    paddingVertical: 12,
+    paddingHorizontal: 14,
+    paddingVertical: 10,
   },
   amountWrap: {
-    gap: 2,
+    gap: 1,
   },
   actionButton: {
-    paddingHorizontal: 18,
-    paddingVertical: 10,
-    borderRadius: 12,
+    paddingHorizontal: 14,
+    paddingVertical: 8,
+    borderRadius: 10,
     alignItems: 'center',
     justifyContent: 'center',
   },
   statusPill: {
-    paddingHorizontal: 12,
-    paddingVertical: 6,
-    borderRadius: 20,
+    paddingHorizontal: 10,
+    paddingVertical: 4,
+    borderRadius: 12,
   },
   accordionHeader: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
-    paddingHorizontal: 16,
-    paddingVertical: 10,
+    paddingHorizontal: 14,
+    paddingVertical: 8,
     borderTopWidth: 1,
   },
   accordionTitle: {
@@ -234,15 +301,30 @@ const styles = StyleSheet.create({
     flex: 1,
   },
   lightbulb: {
-    fontSize: 12,
+    fontSize: 11,
   },
   chevron: {
-    fontSize: 10,
-    marginLeft: 6,
+    fontSize: 9,
+    marginLeft: 4,
   },
   accordionContent: {
     paddingHorizontal: 16,
-    paddingBottom: 12,
-    paddingTop: 4,
+    paddingBottom: 14,
+    paddingTop: 10,
+    borderTopWidth: 1,
+    borderTopColor: 'rgba(0,0,0,0.05)',
+  },
+  breakdownTable: {
+    gap: 6,
+  },
+  breakdownRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    paddingVertical: 2,
+  },
+  breakdownDivider: {
+    height: 1,
+    marginVertical: 4,
   },
 });

@@ -36,4 +36,20 @@ export class SettlementController {
       next(error);
     }
   }
+
+  public static async getUserSettlements(req: Request, res: Response, next: NextFunction): Promise<void> {
+    try {
+      const result = await SettlementService.getUserSettlements(
+        req.user!.id,
+        req.query as any
+      );
+      res.status(200).json({
+        success: true,
+        data: result.data,
+        meta: result.meta,
+      });
+    } catch (error) {
+      next(error);
+    }
+  }
 }

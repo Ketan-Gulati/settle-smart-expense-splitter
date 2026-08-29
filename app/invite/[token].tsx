@@ -202,11 +202,41 @@ export default function InviteJoinScreen() {
                 </View>
               </View>
 
+              {/* Group Spend Stats */}
+              <View style={[styles.statsBar, { backgroundColor: theme.colors.surfaceSubtle }]}>
+                <View style={styles.statCol}>
+                  <Text variant="caption" color={theme.colors.textMuted}>
+                    MEMBERS
+                  </Text>
+                  <Text variant="body" weight="bold">
+                    {preview.memberCount}
+                  </Text>
+                </View>
+                <View style={[styles.statDivider, { backgroundColor: theme.colors.border }]} />
+                <View style={styles.statCol}>
+                  <Text variant="caption" color={theme.colors.textMuted}>
+                    TOTAL SPENT
+                  </Text>
+                  <Text variant="body" weight="bold" color={theme.colors.primary}>
+                    ₹{((preview.totalSpentMinor || 0) / 100).toLocaleString('en-IN')}
+                  </Text>
+                </View>
+                <View style={[styles.statDivider, { backgroundColor: theme.colors.border }]} />
+                <View style={styles.statCol}>
+                  <Text variant="caption" color={theme.colors.textMuted}>
+                    EXPENSES
+                  </Text>
+                  <Text variant="body" weight="bold">
+                    {preview.expenseCount || 0}
+                  </Text>
+                </View>
+              </View>
+
               <View style={styles.divider} />
 
               <View style={styles.membersSection}>
-                <Text variant="caption" weight="bold" color={theme.colors.textMuted}>
-                  GROUP MEMBERS ({preview.memberCount})
+                <Text variant="caption" weight="bold" color={theme.colors.textMuted} style={{ marginBottom: 4 }}>
+                  WHO'S ALREADY IN
                 </Text>
                 <View style={styles.memberChips}>
                   {preview.members.map((m) => (
@@ -217,8 +247,21 @@ export default function InviteJoinScreen() {
                       </Text>
                     </View>
                   ))}
+                  <View style={[styles.memberChip, { backgroundColor: theme.colors.primary, borderColor: theme.colors.primary }]}>
+                    <Text variant="bodySecondary" weight="bold" color={theme.colors.primaryForeground}>
+                      + You (Joining)
+                    </Text>
+                  </View>
                 </View>
               </View>
+
+              {preview.expenseCount && preview.expenseCount > 0 ? (
+                <View style={[styles.sharedExpensesBanner, { backgroundColor: 'rgba(16, 185, 129, 0.1)' }]}>
+                  <Text variant="caption" weight="semibold" color="#10B981">
+                    ✨ You have {preview.expenseCount} shared expense{preview.expenseCount > 1 ? 's' : ''} waiting to be settled.
+                  </Text>
+                </View>
+              ) : null}
             </Surface>
 
             {/* Primary Action Button */}
@@ -347,6 +390,27 @@ const styles = StyleSheet.create({
     borderRadius: 14,
     alignItems: 'center',
     justifyContent: 'center',
+  },
+  statsBar: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-around',
+    paddingVertical: 10,
+    paddingHorizontal: 12,
+    borderRadius: 12,
+  },
+  statCol: {
+    alignItems: 'center',
+    gap: 2,
+  },
+  statDivider: {
+    width: 1,
+    height: 24,
+  },
+  sharedExpensesBanner: {
+    padding: 10,
+    borderRadius: 10,
+    alignItems: 'center',
   },
   divider: {
     height: 1,

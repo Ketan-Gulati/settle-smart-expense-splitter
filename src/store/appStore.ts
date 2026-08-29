@@ -8,12 +8,14 @@ interface SessionState {
   isAuthenticated: boolean;
   isSessionLoading: boolean;
   activeGroupId: string | null;
+  unreadNotificationCount: number;
   dataVersion: number;
   initSession: () => Promise<void>;
   login: (email: string, password: string) => Promise<void>;
   register: (name: string, email: string, password: string) => Promise<void>;
   logout: () => Promise<void>;
   setActiveGroup: (id: string | null) => void;
+  fetchUnreadNotificationCount: () => Promise<void>;
   notifyDataChanged: () => void;
 }
 
@@ -22,6 +24,7 @@ export const useAppStore = create<SessionState>((set, get) => ({
   isAuthenticated: false,
   isSessionLoading: true,
   activeGroupId: null,
+  unreadNotificationCount: 0,
   dataVersion: 0,
 
   initSession: async () => {
@@ -38,6 +41,12 @@ export const useAppStore = create<SessionState>((set, get) => ({
         isAuthenticated: true,
         isSessionLoading: false,
       });
+
+      // Connect to Real-time Sync SSE Stream
+      try {
+        const { RealtimeClient } = require('../services/realtimeClient');
+        RealtimeClient.connect();
+      } catch {}
     } catch {
       await TokenStorage.clearTokens();
       set({ currentUser: null, isAuthenticated: false, isSessionLoading: false });
@@ -51,6 +60,11 @@ export const useAppStore = create<SessionState>((set, get) => ({
       isAuthenticated: true,
       dataVersion: get().dataVersion + 1,
     });
+
+    try {
+      const { RealtimeClient } = require('../services/realtimeClient');
+      RealtimeClient.connect();
+    } catch {}
   },
 
   register: async (name, email, password) => {
@@ -67,10 +81,34 @@ export const useAppStore = create<SessionState>((set, get) => ({
     set({
       currentUser: null,
       isAuthenticated: false,
+      unreadNotificationCount: 0,
       dataVersion: get().dataVersion + 1,
     });
   },
 
   setActiveGroup: (activeGroupId) => set({ activeGroupId }),
-  notifyDataChanged: () => set((state) => ({ dataVersion: state.dataVersion + 1 })),
+
+  fetchUnreadNotificationCount: async () => {
+    try {
+      const notifs = await SettleApiService.getNotifications();
+      const count = notifs.filter((n) => n.status !== 'READ').length;
+      set({ unreadNotificationCount: count });
+    } catch {
+      // Ignore network failures for notification count
+    }
+  },
+
+  notifyDataChanged: () => {
+    try {
+      const { ApiClient } = require('../services/api/client');
+      ApiClient.clearCache();
+    } catch {}
+    try {
+      const { homeFeedService } = require('../services/homeFeedService');
+      homeFeedService.clearCache();
+    } catch {}
+
+    set((state) => ({ dataVersion: state.dataVersion + 1 }));
+    get().fetchUnreadNotificationCount();
+  },
 }));

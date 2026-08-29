@@ -150,11 +150,12 @@ model Group {
   isArchived Boolean    @default(false) @map("is_archived")
 
   // Relationships
-  creator     User              @relation("GroupCreator", fields: [createdBy], references: [id], onDelete: Restrict)
-  members     GroupMember[]
-  invitations GroupInvitation[]
-  expenses    Expense[]
-  settlements Settlement[]
+  creator            User                       @relation("GroupCreator", fields: [createdBy], references: [id], onDelete: Restrict)
+  members            GroupMember[]
+  invitations        GroupInvitation[]
+  expenses           Expense[]
+  settlements        Settlement[]
+  recurringSchedules RecurringExpenseSchedule[]
 
   @@index([createdBy])
   @@index([createdAt])
@@ -202,30 +203,82 @@ model GroupMember {
   @@map("group_members")
 }
 
+enum RecurrenceFrequency {
+  WEEKLY
+  BIWEEKLY
+  MONTHLY
+  YEARLY
+}
+
+enum RecurringBehavior {
+  AUTO_ADD
+  REMIND_CONFIRM
+}
+
 model Expense {
-  id             String      @id @default(uuid()) @db.Uuid
-  groupId        String      @map("group_id") @db.Uuid
-  description    String      @db.VarChar(255)
-  amountMinor    BigInt      @map("amount_minor")
-  currency       String      @default("INR") @db.VarChar(3)
-  paidByUserId   String      @map("paid_by_user_id") @db.Uuid
-  splitMethod    SplitMethod @default(EQUAL) @map("split_method")
-  category       String?     @db.VarChar(100)
-  notes          String?     @db.Text
-  createdAt      DateTime    @default(now()) @map("created_at") @db.Timestamptz(6)
-  updatedAt      DateTime    @updatedAt @map("updated_at") @db.Timestamptz(6)
-  deletedAt      DateTime?   @map("deleted_at") @db.Timestamptz(6)
+  id                  String                    @id @default(uuid()) @db.Uuid
+  groupId             String                    @map("group_id") @db.Uuid
+  description         String                    @db.VarChar(255)
+  amountMinor         BigInt                    @map("amount_minor")
+  currency            String                    @default("INR") @db.VarChar(3)
+  originalAmountMinor BigInt?                   @map("original_amount_minor")
+  originalCurrency    String?                   @map("original_currency") @db.VarChar(3)
+  exchangeRate        Decimal?                  @map("exchange_rate") @db.Decimal(12, 6)
+  paidByUserId        String                    @map("paid_by_user_id") @db.Uuid
+  splitMethod         SplitMethod               @default(EQUAL) @map("split_method")
+  category            String?                   @db.VarChar(100)
+  notes               String?                   @db.Text
+  isLocked            Boolean                   @default(false) @map("is_locked")
+  createdByUserId     String?                   @map("created_by_user_id") @db.Uuid
+  allowedEditorIds    String[]                  @default([]) @map("allowed_editor_ids")
+  recurringScheduleId String?                   @map("recurring_schedule_id") @db.Uuid
+  occurrenceDate      DateTime?                 @map("occurrence_date") @db.Date
+  createdAt           DateTime                  @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt           DateTime                  @updatedAt @map("updated_at") @db.Timestamptz(6)
+  deletedAt           DateTime?                 @map("deleted_at") @db.Timestamptz(6)
 
   // Relationships
-  group   Group          @relation(fields: [groupId], references: [id], onDelete: Cascade)
-  payer   User           @relation("ExpensePayer", fields: [paidByUserId], references: [id], onDelete: Restrict)
-  splits  ExpenseSplit[]
+  group             Group                     @relation(fields: [groupId], references: [id], onDelete: Cascade)
+  payer             User                      @relation("ExpensePayer", fields: [paidByUserId], references: [id], onDelete: Restrict)
+  splits            ExpenseSplit[]
+  recurringSchedule RecurringExpenseSchedule? @relation(fields: [recurringScheduleId], references: [id], onDelete: SetNull)
 
+  @@unique([recurringScheduleId, occurrenceDate])
   @@index([groupId, createdAt(sort: Desc)])
   @@index([groupId, deletedAt])
   @@index([paidByUserId])
   @@index([createdAt(sort: Desc)])
   @@map("expenses")
+}
+
+model RecurringExpenseSchedule {
+  id               String              @id @default(uuid()) @db.Uuid
+  groupId          String              @map("group_id") @db.Uuid
+  title            String              @db.VarChar(255)
+  amountMinor      BigInt              @map("amount_minor")
+  currency         String              @default("INR") @db.VarChar(3)
+  category         String?             @db.VarChar(100)
+  paidByUserId     String              @map("paid_by_user_id") @db.Uuid
+  splitMethod      SplitMethod         @default(EQUAL) @map("split_method")
+  frequency        RecurrenceFrequency @default(MONTHLY)
+  behavior         RecurringBehavior   @default(AUTO_ADD)
+  dayOfMonth       Int?                @map("day_of_month")
+  dayOfWeek        Int?                @map("day_of_week")
+  startDate        DateTime            @map("start_date") @db.Timestamptz(6)
+  endDate          DateTime?           @map("end_date") @db.Timestamptz(6)
+  nextOccurrenceAt DateTime            @map("next_occurrence_at") @db.Timestamptz(6)
+  lastGeneratedAt  DateTime?           @map("last_generated_at") @db.Timestamptz(6)
+  isActive         Boolean             @default(true) @map("is_active")
+  createdAt        DateTime            @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt        DateTime            @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  // Relationships
+  group            Group               @relation(fields: [groupId], references: [id], onDelete: Cascade)
+  expenses         Expense[]
+
+  @@index([groupId])
+  @@index([isActive, nextOccurrenceAt])
+  @@map("recurring_expense_schedules")
 }
 
 model ExpenseSplit {

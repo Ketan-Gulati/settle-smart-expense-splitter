@@ -1,8 +1,6 @@
 import { EntityId } from '../domain/common/types';
-import { GroupEntity, groupRepository } from '../repositories/groupRepository';
-import { UserEntity, userRepository } from '../repositories/userRepository';
-import { expenseRepository } from '../repositories/expenseRepository';
-import { balanceService } from './balanceService';
+import { GroupEntity } from '../repositories/groupRepository';
+import { UserEntity } from '../repositories/userRepository';
 import { SettleApiService } from './api/settleApi';
 import { IconName } from '../components/Icon';
 
@@ -36,18 +34,38 @@ export interface HomeDashboardData {
   readonly topGroups: GroupCardSummary[];
   readonly recentActivity: ActivityItem[];
   readonly firstActiveGroupIdWithPayments: EntityId | null;
+  readonly unreadNotificationCount: number;
 }
 
 export class HomeFeedService {
+  private static cachedData: HomeDashboardData | null = null;
+
   /**
-   * Consumes live backend /dashboard and /auth/me endpoints.
+   * Clears the client-side cached dashboard data so fresh live data is fetched
+   */
+  public clearCache(): void {
+    HomeFeedService.cachedData = null;
+  }
+
+  /**
+   * Returns cached dashboard data synchronously if available
+   */
+  public getCachedData(): HomeDashboardData | null {
+    return HomeFeedService.cachedData;
+  }
+
+  /**
+   * Consumes live backend /dashboard, /notifications, and /auth/me endpoints.
    */
   public async getHomeDashboardData(): Promise<HomeDashboardData> {
     try {
-      const [dashboard, me] = await Promise.all([
+      const [dashboard, me, notifications] = await Promise.all([
         SettleApiService.getDashboard(),
         SettleApiService.getMe(),
+        SettleApiService.getNotifications().catch(() => []),
       ]);
+
+      const unreadNotificationCount = notifications.filter((n) => n.status !== 'READ').length;
 
       let totalOwedToUserMinor = 0;
       let totalUserOwesMinor = 0;
@@ -98,7 +116,7 @@ export class HomeFeedService {
         createdAt: me.createdAt || new Date().toISOString(),
       };
 
-      return {
+      const result: HomeDashboardData = {
         user,
         greeting: this.getGreeting(user.name),
         totalNetBalanceMinor: dashboard.totalNetBalanceMinor,
@@ -108,74 +126,18 @@ export class HomeFeedService {
         topGroups: groupSummaries,
         recentActivity,
         firstActiveGroupIdWithPayments: dashboard.groups[0]?.id ?? null,
+        unreadNotificationCount,
       };
-    } catch {
-      // Local repository fallback (e.g. for offline unit testing)
-      const user = await userRepository.getOrCreateDefaultUser();
-      const groups = await groupRepository.findByUser(user.id);
 
-      let totalNetBalanceMinor = 0;
-      let totalOwedToUserMinor = 0;
-      let totalUserOwesMinor = 0;
-      const groupSummaries: GroupCardSummary[] = [];
-      const allExpensesWithGroup: any[] = [];
-
-      for (const group of groups) {
-        const balRes = await balanceService.getGroupBalances(group.id);
-        const userNet = balRes.success ? balRes.data.userBalances[user.id]?.netBalanceMinor || 0 : 0;
-        totalNetBalanceMinor += userNet;
-        if (userNet > 0) totalOwedToUserMinor += userNet;
-        else if (userNet < 0) totalUserOwesMinor += Math.abs(userNet);
-
-        const groupExpenses = await expenseRepository.findByGroup(group.id);
-        for (const exp of groupExpenses) {
-          allExpensesWithGroup.push({ expense: exp, group });
-        }
-
-        groupSummaries.push({
-          group,
-          netBalanceMinor: userNet,
-          unsettledExpensesCount: groupExpenses.length,
-          priorityScore: userNet > 0 ? 1 : userNet < 0 ? 2 : 3,
-        });
+      HomeFeedService.cachedData = result;
+      return result;
+    } catch (err: any) {
+      console.error('HomeFeedService error:', err);
+      // Return previous cached data if available, or throw
+      if (HomeFeedService.cachedData) {
+        return HomeFeedService.cachedData;
       }
-
-      allExpensesWithGroup.sort((a, b) => {
-        const dateA = new Date(a.expense.date).getTime();
-        const dateB = new Date(b.expense.date).getTime();
-        if (dateB !== dateA) return dateB - dateA;
-        return new Date(b.expense.createdAt).getTime() - new Date(a.expense.createdAt).getTime();
-      });
-
-      const recentActivity: ActivityItem[] = allExpensesWithGroup.slice(0, 5).map(({ expense, group }) => {
-        const isUserPayer = expense.payerId === user.id;
-        const userSplit = expense.splits.find((s: any) => s.userId === user.id)?.amountMinor || 0;
-        const userShareMinor = isUserPayer ? expense.amountMinor - userSplit : -userSplit;
-        return {
-          expenseId: expense.id,
-          title: expense.description,
-          groupName: group.name,
-          groupId: group.id,
-          timestamp: this.formatRelativeTime(expense.date),
-          payerName: isUserPayer ? 'You' : 'Someone',
-          totalAmountMinor: expense.amountMinor,
-          userShareMinor,
-          currency: expense.currency,
-          categoryIconName: this.getCategoryIcon(expense.description),
-        };
-      });
-
-      return {
-        user,
-        greeting: this.getGreeting(user.name),
-        totalNetBalanceMinor,
-        totalOwedToUserMinor,
-        totalUserOwesMinor,
-        totalOptimizedPaymentsCount: 0,
-        topGroups: groupSummaries,
-        recentActivity,
-        firstActiveGroupIdWithPayments: groups[0]?.id ?? null,
-      };
+      throw err;
     }
   }
 

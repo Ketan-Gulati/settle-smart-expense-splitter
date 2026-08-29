@@ -13,10 +13,12 @@ import { userRoutes } from './modules/users/user.routes';
 import { groupRoutes } from './modules/groups/group.routes';
 import { expenseRoutes, groupExpenseRoutes } from './modules/expenses/expense.routes';
 import { balanceRoutes } from './modules/balances/balance.routes';
-import { settlementRoutes } from './modules/settlements/settlement.routes';
+import { groupSettlementRoutes, settlementRoutes } from './modules/settlements/settlement.routes';
 import { activityRoutes } from './modules/activity/activity.routes';
 import { dashboardRoutes } from './modules/dashboard/dashboard.routes';
 import { notificationRoutes } from './modules/notifications/notification.routes';
+import { recurringGroupRoutes, recurringScheduleRoutes } from './modules/recurring/recurring.routes';
+import { realtimeRoutes } from './modules/realtime/realtime.service';
 
 export const createApp = (): Express => {
   const app = express();
@@ -59,11 +61,15 @@ export const createApp = (): Express => {
   apiV1.use('/groups', groupRoutes);
   apiV1.use('/groups', groupExpenseRoutes);
   apiV1.use('/groups', balanceRoutes);
-  apiV1.use('/groups', settlementRoutes);
+  apiV1.use('/groups', groupSettlementRoutes);
+  apiV1.use('/settlements', settlementRoutes);
   apiV1.use('/expenses', expenseRoutes);
   apiV1.use('/activity', activityRoutes);
   apiV1.use('/dashboard', dashboardRoutes);
   apiV1.use('/notifications', notificationRoutes);
+  apiV1.use('/groups/:groupId/recurring-schedules', recurringGroupRoutes);
+  apiV1.use('/recurring-schedules', recurringScheduleRoutes);
+  apiV1.use('/realtime', realtimeRoutes);
 
   // Mount API v1
   app.use('/api/v1', apiV1);

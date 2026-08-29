@@ -12,6 +12,7 @@ import { BalanceService } from '../balances/balance.service';
 import { CreateGroupInput, UpdateGroupInput, AddMemberInput } from './group.schemas';
 import { CacheService } from '../../infrastructure/redis/redis.service';
 import { CacheKeys } from '../../infrastructure/redis/redis.keys';
+import { NotificationService } from '../notifications/notification.service';
 
 export interface GroupMemberResponse {
   id: string;
@@ -58,6 +59,8 @@ export interface InvitePreviewResponse {
   memberCount: number;
   members: Array<{ id: string; name: string; avatarUrl: string | null }>;
   inviteCode: string;
+  totalSpentMinor: number;
+  expenseCount: number;
 }
 
 const UUID_REGEX = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
@@ -154,7 +157,6 @@ export class GroupService {
     // Automatically send Action Center notifications to all invited members (except creator)
     const invitedMemberIds = (input.initialMemberUserIds || []).filter((id) => id !== creatorUserId);
     if (invitedMemberIds.length > 0) {
-      const { NotificationService } = await import('../notifications/notification.service');
       const creator = await prisma.user.findUnique({
         where: { id: creatorUserId },
         select: { name: true },
@@ -422,6 +424,16 @@ export class GroupService {
       throw new ValidationError('This invitation has expired', 'INVITE_EXPIRED');
     }
 
+    // Compute live group spend totals and expense count
+    const expenseAgg = await prisma.expense.aggregate({
+      where: { groupId: invite.group.id, deletedAt: null },
+      _sum: { amountMinor: true },
+      _count: { id: true },
+    });
+
+    const totalSpentMinor = Number(expenseAgg._sum.amountMinor || 0n);
+    const expenseCount = expenseAgg._count.id;
+
     const preview: InvitePreviewResponse = {
       groupId: invite.group.id,
       groupName: invite.group.name,
@@ -435,6 +447,8 @@ export class GroupService {
         avatarUrl: m.user.avatarUrl,
       })),
       inviteCode: invite.inviteCode,
+      totalSpentMinor,
+      expenseCount,
     };
 
     await CacheService.set(cacheKey, preview, 600); // 10 mins TTL
@@ -512,6 +526,32 @@ export class GroupService {
         },
       });
     });
+
+    // Notify other group members: "Raj joined Goa 2026"
+    try {
+      const joiningUser = await prisma.user.findUnique({ where: { id: userId }, select: { name: true } });
+      const joinerName = joiningUser?.name || 'A new member';
+      const groupName = invite.group.name;
+
+      const otherMembers = await prisma.groupMember.findMany({
+        where: { groupId: invite.groupId, leftAt: null, userId: { not: userId } },
+        select: { userId: true },
+      });
+
+      for (const m of otherMembers) {
+        await NotificationService.createNotification({
+          recipientUserId: m.userId,
+          actorUserId: userId,
+          type: 'GROUP_MEMBER_JOINED',
+          groupId: invite.groupId,
+          groupName,
+          title: `New Member Joined`,
+          message: `${joinerName} joined ${groupName}`,
+        });
+      }
+    } catch (notifErr) {
+      console.warn('Failed to send member joined notifications:', notifErr);
+    }
 
     return this.getGroupDetails(invite.groupId, userId);
   }

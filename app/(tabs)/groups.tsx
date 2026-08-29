@@ -1,5 +1,5 @@
 import { useEffect, useState, useCallback } from 'react';
-import { View, ScrollView, StyleSheet, ActivityIndicator, Modal, Pressable } from 'react-native';
+import { View, ScrollView, StyleSheet, ActivityIndicator, Modal, Pressable, RefreshControl } from 'react-native';
 import { useRouter } from 'expo-router';
 import { Text, Button, Input, Surface, AppHeader, MoneyDisplay, EmptyState, NotificationSideMenu } from '@/components';
 import { useAppTheme } from '@/hooks/useAppTheme';
@@ -21,6 +21,8 @@ export default function GroupsScreen() {
   const [currentUser, setCurrentUser] = useState<UserDTO | null>(null);
   const [groupItems, setGroupItems] = useState<GroupListItem[]>([]);
   const [loading, setLoading] = useState(true);
+  const [refreshing, setRefreshing] = useState(false);
+  const [sideMenuVisible, setSideMenuVisible] = useState(false);
 
   // Add Group Action Sheet State
   const [actionSheetVisible, setActionSheetVisible] = useState(false);
@@ -31,9 +33,11 @@ export default function GroupsScreen() {
   const [joining, setJoining] = useState(false);
   const [joinError, setJoinError] = useState<string | null>(null);
 
-  const loadGroups = useCallback(async () => {
+  const loadGroups = useCallback(async (isInitial = false) => {
     try {
-      setLoading(true);
+      if (isInitial && groupItems.length === 0) {
+        setLoading(true);
+      }
       try {
         const [user, groups] = await Promise.all([
           SettleApiService.getMe(),
@@ -94,12 +98,18 @@ export default function GroupsScreen() {
       console.error('Failed to load groups:', err);
     } finally {
       setLoading(false);
+      setRefreshing(false);
     }
   }, []);
 
   useEffect(() => {
     loadGroups();
   }, [loadGroups, dataVersion]);
+
+  const onRefresh = () => {
+    setRefreshing(true);
+    loadGroups();
+  };
 
   const getGroupInitial = (name: string) => {
     return name.charAt(0).toUpperCase() || 'G';
@@ -136,8 +146,6 @@ export default function GroupsScreen() {
     }
   };
 
-  const [sideMenuVisible, setSideMenuVisible] = useState(false);
-
   return (
     <View style={[styles.container, { backgroundColor: theme.colors.background }]}>
       <AppHeader
@@ -164,7 +172,11 @@ export default function GroupsScreen() {
           style={styles.empty}
         />
       ) : (
-        <ScrollView contentContainerStyle={styles.listContent}>
+        <ScrollView
+          contentContainerStyle={styles.listContent}
+          showsVerticalScrollIndicator={false}
+          refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} />}
+        >
           {/* Header Row: "Groups" + Plus "+" Button */}
           <View style={styles.titleRow}>
             <Text variant="displayLarge" weight="bold">

@@ -1,5 +1,5 @@
-import { useState, useEffect } from 'react';
-import { View, ScrollView, StyleSheet, Pressable, ActivityIndicator, Modal } from 'react-native';
+import { useState, useEffect, useCallback } from 'react';
+import { View, ScrollView, StyleSheet, Pressable, ActivityIndicator, Modal, RefreshControl } from 'react-native';
 import { useRouter } from 'expo-router';
 import { Text, DetailHeader, Avatar, Button, Surface, Input, Icon } from '@/components';
 import { useAppTheme } from '@/hooks/useAppTheme';
@@ -14,6 +14,7 @@ export default function ProfileScreen() {
 
   const [user, setUser] = useState<UserDTO | null>(null);
   const [loading, setLoading] = useState(true);
+  const [refreshing, setRefreshing] = useState(false);
   const [loggingOut, setLoggingOut] = useState(false);
 
   // Change Password Multi-Step Flow States
@@ -37,12 +38,26 @@ export default function ProfileScreen() {
     reason?: string;
   } | null>(null);
 
-  useEffect(() => {
-    SettleApiService.getUserProfile()
-      .then(setUser)
-      .catch((err) => console.error('Failed to load profile:', err))
-      .finally(() => setLoading(false));
+  const loadProfile = useCallback(async () => {
+    try {
+      const u = await SettleApiService.getUserProfile();
+      setUser(u);
+    } catch (err) {
+      console.error('Failed to load profile:', err);
+    } finally {
+      setLoading(false);
+      setRefreshing(false);
+    }
   }, []);
+
+  useEffect(() => {
+    loadProfile();
+  }, [loadProfile]);
+
+  const onRefresh = () => {
+    setRefreshing(true);
+    loadProfile();
+  };
 
   const openDeleteAccountModal = async () => {
     try {
@@ -163,7 +178,11 @@ export default function ProfileScreen() {
     <View style={[styles.container, { backgroundColor: theme.colors.background }]}>
       <DetailHeader title="Account & Profile" onBackPress={() => router.back()} />
 
-      <ScrollView contentContainerStyle={styles.content} showsVerticalScrollIndicator={false}>
+      <ScrollView
+        contentContainerStyle={styles.content}
+        showsVerticalScrollIndicator={false}
+        refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} />}
+      >
         {/* User Hero Avatar & Name */}
         <View style={styles.avatarHero}>
           <Avatar name={user?.name || 'User'} size="large" />

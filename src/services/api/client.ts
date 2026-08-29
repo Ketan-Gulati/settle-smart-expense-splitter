@@ -4,16 +4,42 @@ import { ApiResponse, AuthTokensDTO } from './types';
 
 const BASE_URL = process.env.EXPO_PUBLIC_API_BASE_URL || 'http://localhost:5000/api/v1';
 
-// Single in-flight refresh promise to prevent concurrent 401 refresh stampedes
+// In-Memory Stale-While-Revalidate (SWR) cache for instant 0ms transitions
+const apiCache = new Map<string, { data: any; timestamp: number }>();
+const CACHE_TTL_MS = 60000; // 1 minute fresh TTL
+
 let activeRefreshPromise: Promise<string | null> | null = null;
 
 export class ApiClient {
-  public static async get<T>(path: string, params?: Record<string, any>): Promise<ApiResponse<T>> {
+  public static clearCache(): void {
+    apiCache.clear();
+  }
+
+  public static async get<T>(path: string, params?: Record<string, any>, options?: { bypassCache?: boolean }): Promise<ApiResponse<T>> {
     const url = this.buildUrl(path, params);
-    return this.requestWithAuth<T>(url, { method: 'GET' });
+
+    // If cached response exists, return it instantly while optionally refreshing in background
+    if (!options?.bypassCache && apiCache.has(url)) {
+      const cached = apiCache.get(url)!;
+      const isFresh = Date.now() - cached.timestamp < CACHE_TTL_MS;
+      if (isFresh) {
+        // Return cached instantly (0ms) and trigger background revalidation
+        this.requestWithAuth<T>(url, { method: 'GET' })
+          .then((res) => {
+            apiCache.set(url, { data: res, timestamp: Date.now() });
+          })
+          .catch(() => null);
+        return cached.data;
+      }
+    }
+
+    const res = await this.requestWithAuth<T>(url, { method: 'GET' });
+    apiCache.set(url, { data: res, timestamp: Date.now() });
+    return res;
   }
 
   public static async post<T>(path: string, body?: any, headers?: Record<string, string>): Promise<ApiResponse<T>> {
+    this.clearCache(); // Invalidate stale cache on mutations
     const url = this.buildUrl(path);
     return this.requestWithAuth<T>(url, {
       method: 'POST',
@@ -23,6 +49,7 @@ export class ApiClient {
   }
 
   public static async patch<T>(path: string, body?: any): Promise<ApiResponse<T>> {
+    this.clearCache(); // Invalidate stale cache on mutations
     const url = this.buildUrl(path);
     return this.requestWithAuth<T>(url, {
       method: 'PATCH',
@@ -32,6 +59,7 @@ export class ApiClient {
   }
 
   public static async delete<T>(path: string): Promise<ApiResponse<T>> {
+    this.clearCache(); // Invalidate stale cache on mutations
     const url = this.buildUrl(path);
     return this.requestWithAuth<T>(url, { method: 'DELETE' });
   }
@@ -81,6 +109,12 @@ export class ApiClient {
         // Retry original request with new access token
         return this.requestWithAuth<T>(url, options, true);
       }
+    }
+
+    // Handle transient 500 database wake-up / network hiccups
+    if (response.status === 500 && !isRetry) {
+      await new Promise((r) => setTimeout(r, 600));
+      return this.requestWithAuth<T>(url, options, true);
     }
 
     let json: any;

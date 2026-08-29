@@ -1,5 +1,5 @@
 import { useEffect, useState, useCallback, useMemo } from 'react';
-import { View, ScrollView, StyleSheet, ActivityIndicator, Pressable, TextInput } from 'react-native';
+import { View, ScrollView, StyleSheet, ActivityIndicator, Pressable, TextInput, RefreshControl } from 'react-native';
 import { useRouter } from 'expo-router';
 import { useAppTheme } from '@/hooks/useAppTheme';
 import { AppHeader, EmptyState, ExpenseActivityRow, Text, Icon, NotificationSideMenu } from '@/components';
@@ -17,8 +17,10 @@ export default function ActivityScreen() {
   const [activities, setActivities] = useState<ActivityEventDTO[]>([]);
   const [userName, setUserName] = useState('Ketan');
   const [loading, setLoading] = useState(true);
+  const [refreshing, setRefreshing] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
   const [selectedFilter, setSelectedFilter] = useState<DateFilterType>('ALL');
+  const [sideMenuVisible, setSideMenuVisible] = useState(false);
 
   const loadActivities = useCallback(async () => {
     try {
@@ -75,12 +77,18 @@ export default function ActivityScreen() {
       console.error('Failed to load activities:', err);
     } finally {
       setLoading(false);
+      setRefreshing(false);
     }
   }, []);
 
   useEffect(() => {
     loadActivities();
   }, [loadActivities, dataVersion]);
+
+  const onRefresh = () => {
+    setRefreshing(true);
+    loadActivities();
+  };
 
   // Filter activities based on selected date range and search query
   const filteredActivities = useMemo(() => {
@@ -116,8 +124,6 @@ export default function ActivityScreen() {
     { label: 'This Year', value: 'THIS_YEAR' },
   ];
 
-  const [sideMenuVisible, setSideMenuVisible] = useState(false);
-
   return (
     <View style={[styles.container, { backgroundColor: theme.colors.background }]}>
       <AppHeader
@@ -145,7 +151,11 @@ export default function ActivityScreen() {
           />
         </View>
       ) : (
-        <ScrollView contentContainerStyle={styles.content} showsVerticalScrollIndicator={false}>
+        <ScrollView
+          contentContainerStyle={styles.content}
+          showsVerticalScrollIndicator={false}
+          refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} />}
+        >
           <View style={styles.titleSection}>
             <Text variant="displayLarge" weight="bold">
               Activity

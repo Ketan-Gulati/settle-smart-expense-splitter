@@ -78,4 +78,35 @@ export class ExpenseController {
       next(error);
     }
   }
+
+  public static async getUserExpenses(req: Request, res: Response, next: NextFunction): Promise<void> {
+    try {
+      const result = await ExpenseService.getUserExpenses(
+        req.user!.id,
+        req.query as any
+      );
+      res.status(200).json({
+        success: true,
+        data: result.data,
+        meta: result.meta,
+      });
+    } catch (error) {
+      next(error);
+    }
+  }
+
+  public static async requestEditAccess(req: Request, res: Response, next: NextFunction): Promise<void> {
+    try {
+      const result = await ExpenseService.requestEditAccess(
+        req.params.expenseId as string,
+        req.user!.id
+      );
+      res.status(200).json({
+        success: true,
+        data: result,
+      });
+    } catch (error) {
+      next(error);
+    }
+  }
 }

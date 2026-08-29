@@ -86,7 +86,7 @@ export async function shareGroupInvite(options: ShareInviteOptions): Promise<boo
   const inviter = inviterName ? inviterName : 'A group member';
 
   const title = `Join ${groupName} on Settle`;
-  const message = `You're invited to join ${groupName} on Settle.\n\n${inviter} invited you to join the group and split expenses together.\n\nJoin the group:\n${inviteUrl}`;
+  const message = `🧾 ${inviter} added you to ${groupName} on Settle.\n\nTrack expenses, see exactly what you owe, and settle everything without doing the math.\n\n👉 Join ${groupName}:\n${inviteUrl}`;
 
   try {
     // On web with navigator.share

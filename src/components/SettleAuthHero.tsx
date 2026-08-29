@@ -7,6 +7,8 @@ interface SettleHeroProps {
   onAnimationComplete?: () => void;
 }
 
+const useNativeDriver = Platform.OS !== 'web';
+
 export const SettleAuthHero = ({ onAnimationComplete }: SettleHeroProps) => {
   const theme = useAppTheme();
   const { width: windowWidth } = useWindowDimensions();
@@ -49,7 +51,7 @@ export const SettleAuthHero = ({ onAnimationComplete }: SettleHeroProps) => {
         toValue: 1,
         duration: 350,
         easing: Easing.out(Easing.cubic),
-        useNativeDriver: true,
+        useNativeDriver,
       }),
 
       // PHASE 2: Central Balance Card (~450ms)
@@ -57,19 +59,19 @@ export const SettleAuthHero = ({ onAnimationComplete }: SettleHeroProps) => {
         Animated.timing(centralOpacity, {
           toValue: 1,
           duration: 450,
-          useNativeDriver: true,
+          useNativeDriver,
         }),
         Animated.timing(centralScale, {
           toValue: 1,
           duration: 450,
           easing: Easing.out(Easing.back(1.4)),
-          useNativeDriver: true,
+          useNativeDriver,
         }),
         Animated.timing(centralTranslateY, {
           toValue: 0,
           duration: 450,
           easing: Easing.out(Easing.cubic),
-          useNativeDriver: true,
+          useNativeDriver,
         }),
       ]),
 
@@ -79,19 +81,19 @@ export const SettleAuthHero = ({ onAnimationComplete }: SettleHeroProps) => {
           toValue: 1,
           duration: 250,
           easing: Easing.out(Easing.cubic),
-          useNativeDriver: true,
+          useNativeDriver,
         }),
         Animated.timing(personRAnim, {
           toValue: 1,
           duration: 250,
           easing: Easing.out(Easing.cubic),
-          useNativeDriver: true,
+          useNativeDriver,
         }),
         Animated.timing(personAAnim, {
           toValue: 1,
           duration: 250,
           easing: Easing.out(Easing.cubic),
-          useNativeDriver: true,
+          useNativeDriver,
         }),
       ]),
 
@@ -101,19 +103,19 @@ export const SettleAuthHero = ({ onAnimationComplete }: SettleHeroProps) => {
           toValue: 1,
           duration: 260,
           easing: Easing.out(Easing.cubic),
-          useNativeDriver: true,
+          useNativeDriver,
         }),
         Animated.timing(expenseCabAnim, {
           toValue: 1,
           duration: 260,
           easing: Easing.out(Easing.cubic),
-          useNativeDriver: true,
+          useNativeDriver,
         }),
         Animated.timing(expenseVillaAnim, {
           toValue: 1,
           duration: 260,
           easing: Easing.out(Easing.cubic),
-          useNativeDriver: true,
+          useNativeDriver,
         }),
       ]),
 
@@ -122,7 +124,7 @@ export const SettleAuthHero = ({ onAnimationComplete }: SettleHeroProps) => {
         toValue: 1,
         duration: 350,
         easing: Easing.out(Easing.quad),
-        useNativeDriver: true,
+        useNativeDriver,
       }),
     ]).start(() => {
       onAnimationComplete?.();
@@ -136,13 +138,13 @@ export const SettleAuthHero = ({ onAnimationComplete }: SettleHeroProps) => {
             toValue: -travel,
             duration: duration / 2,
             easing: Easing.inOut(Easing.quad),
-            useNativeDriver: true,
+            useNativeDriver,
           }),
           Animated.timing(anim, {
             toValue: travel,
             duration: duration / 2,
             easing: Easing.inOut(Easing.quad),
-            useNativeDriver: true,
+            useNativeDriver,
           }),
         ])
       );
@@ -162,13 +164,13 @@ export const SettleAuthHero = ({ onAnimationComplete }: SettleHeroProps) => {
           toValue: 1,
           duration: 3200,
           easing: Easing.inOut(Easing.quad),
-          useNativeDriver: true,
+          useNativeDriver,
         }),
         Animated.timing(pulseConnection, {
           toValue: 0,
           duration: 3200,
           easing: Easing.inOut(Easing.quad),
-          useNativeDriver: true,
+          useNativeDriver,
         }),
       ])
     );

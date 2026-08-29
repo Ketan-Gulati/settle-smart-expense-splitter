@@ -1,6 +1,7 @@
 import { z } from 'zod';
 
 export const createSettlementSchema = z.object({
+  fromUserId: z.string().uuid('Valid payer user ID').optional(),
   toUserId: z.string().uuid('Valid recipient user ID required'),
   amountMinor: z.coerce.bigint().positive('Settlement amount must be > 0'),
   note: z.string().max(255).optional(),

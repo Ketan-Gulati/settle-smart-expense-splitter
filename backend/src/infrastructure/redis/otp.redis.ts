@@ -323,41 +323,49 @@ export class OtpRedisRepository {
    */
   public static async storeOAuthState(state: string, metadata: Record<string, any> = {}): Promise<void> {
     const key = this.getOAuthStateKey(state);
-    try {
-      const redis = RedisService.getClient();
-      await redis.set(key, JSON.stringify(metadata), 'EX', 600);
-    } catch (err) {
-      Logger.warn('Redis storeOAuthState failed, falling back to memory store');
-      this.setMemory(key, JSON.stringify(metadata), 600);
+    this.setMemory(key, JSON.stringify(metadata), 600);
+
+    if (await RedisService.isHealthy()) {
+      try {
+        const redis = RedisService.getClient();
+        await redis.set(key, JSON.stringify(metadata), 'EX', 600);
+      } catch (err) {
+        Logger.warn('Redis storeOAuthState failed, memory store saved');
+      }
     }
   }
 
   public static async consumeOAuthState(state: string): Promise<Record<string, any> | null> {
     const key = this.getOAuthStateKey(state);
 
-    const luaScript = `
-      local key = KEYS[1]
-      local val = redis.call('get', key)
-      if val then
-        redis.call('del', key)
-        return val
-      else
-        return nil
-      end
-    `;
+    if (await RedisService.isHealthy()) {
+      const luaScript = `
+        local key = KEYS[1]
+        local val = redis.call('get', key)
+        if val then
+          redis.call('del', key)
+          return val
+        else
+          return nil
+        end
+      `;
 
-    try {
-      const redis = RedisService.getClient();
-      const raw = await redis.eval(luaScript, 1, key);
-      if (!raw) return null;
-      return JSON.parse(raw as string);
-    } catch (err) {
-      Logger.warn('Redis consumeOAuthState failed, reading from memory store');
-      const raw = this.getMemory(key);
-      if (!raw) return null;
-      this.deleteMemory(key);
-      return JSON.parse(raw);
+      try {
+        const redis = RedisService.getClient();
+        const raw = await redis.eval(luaScript, 1, key);
+        if (raw) {
+          this.deleteMemory(key);
+          return JSON.parse(raw as string);
+        }
+      } catch (err) {
+        Logger.warn('Redis consumeOAuthState failed, reading from memory store');
+      }
     }
+
+    const raw = this.getMemory(key);
+    if (!raw) return null;
+    this.deleteMemory(key);
+    return JSON.parse(raw);
   }
 
   /**

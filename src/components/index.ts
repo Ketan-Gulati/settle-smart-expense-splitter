@@ -19,4 +19,6 @@ export * from './NumericKeypad';
 export * from './SettlementPathCard';
 export * from './NotificationSideMenu';
 export * from './Icon';
+export * from './GroupAnalyticsCharts';
+export * from './OfflineSyncBanner';
 export * from './onboarding/SettleWorldScene';

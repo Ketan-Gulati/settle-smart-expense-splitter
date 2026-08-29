@@ -37,10 +37,21 @@ export const authenticate = async (
       throw new UnauthorizedError('Invalid or expired access token');
     }
 
-    const user = await prisma.user.findUnique({
-      where: { id: payload.userId },
-      select: { id: true, email: true, name: true, isActive: true },
-    });
+    let user = null;
+    let attempts = 0;
+    while (attempts < 3) {
+      try {
+        attempts++;
+        user = await prisma.user.findUnique({
+          where: { id: payload.userId },
+          select: { id: true, email: true, name: true, isActive: true },
+        });
+        break;
+      } catch (dbErr: any) {
+        if (attempts >= 3) throw dbErr;
+        await new Promise((resolve) => setTimeout(resolve, 300));
+      }
+    }
 
     if (!user || !user.isActive) {
       throw new UnauthorizedError('User account not found or deactivated');

@@ -10,6 +10,8 @@ import {
   SettlementDTO,
   ActivityEventDTO,
   DashboardDTO,
+  NotificationDTO,
+  RecurringScheduleDTO,
 } from './types';
 
 export class SettleApiService {
@@ -179,8 +181,25 @@ export class SettleApiService {
     notificationId: string
   ): Promise<{ status: string; message: string }> {
     const res = await ApiClient.post<{ status: string; message: string }>(
-      `/notifications/${notificationId}/dismiss`
+      `/notifications/${notificationId}/dismiss`,
+      {}
     );
+    return res.data;
+  }
+
+  public static async registerPushToken(pushToken: string): Promise<void> {
+    await ApiClient.post('/notifications/register-push-token', { pushToken });
+  }
+
+  public static async sendPaymentReminder(payload: {
+    recipientUserId: string;
+    groupId: string;
+    groupName: string;
+    amountMinor: number;
+    durationText?: string;
+    expenseSummary?: string;
+  }): Promise<NotificationDTO> {
+    const res = await ApiClient.post<NotificationDTO>('/notifications/remind', payload);
     return res.data;
   }
 
@@ -234,6 +253,11 @@ export class SettleApiService {
   }
 
   // --- Expenses ---
+  public static async getMyExpenses(page = 1, limit = 100): Promise<ExpenseDTO[]> {
+    const res = await ApiClient.get<ExpenseDTO[]>('/expenses/my', { page, limit });
+    return res.data;
+  }
+
   public static async getGroupExpenses(groupId: string, page = 1, limit = 50): Promise<ExpenseDTO[]> {
     const res = await ApiClient.get<ExpenseDTO[]>(`/groups/${groupId}/expenses`, { page, limit });
     return res.data;
@@ -248,6 +272,11 @@ export class SettleApiService {
     groupId: string;
     description: string;
     amountMinor: number;
+    currency?: string;
+    originalAmountMinor?: number;
+    originalCurrency?: string;
+    exchangeRate?: number;
+    isLocked?: boolean;
     paidByUserId: string;
     splitMethod: string;
     category?: string;
@@ -263,6 +292,11 @@ export class SettleApiService {
     data: {
       description?: string;
       amountMinor?: number;
+      currency?: string;
+      originalAmountMinor?: number;
+      originalCurrency?: string;
+      exchangeRate?: number;
+      isLocked?: boolean;
       paidByUserId?: string;
       splitMethod?: string;
       category?: string;
@@ -271,6 +305,11 @@ export class SettleApiService {
     }
   ): Promise<ExpenseDTO> {
     const res = await ApiClient.patch<ExpenseDTO>(`/expenses/${expenseId}`, data);
+    return res.data;
+  }
+
+  public static async requestEditAccess(expenseId: string): Promise<{ message: string }> {
+    const res = await ApiClient.post<{ message: string }>(`/expenses/${expenseId}/request-edit-access`);
     return res.data;
   }
 
@@ -290,17 +329,29 @@ export class SettleApiService {
   }
 
   // --- Settlements ---
-  public static async recordSettlement(groupId: string, toUserId: string, amountMinor: number, note?: string): Promise<SettlementDTO> {
+  public static async getMySettlements(page = 1, limit = 50): Promise<SettlementDTO[]> {
+    const res = await ApiClient.get<SettlementDTO[]>('/settlements/my', { page, limit });
+    return res.data;
+  }
+
+  public static async getGroupSettlements(groupId: string, page = 1, limit = 50): Promise<SettlementDTO[]> {
+    const res = await ApiClient.get<SettlementDTO[]>(`/groups/${groupId}/settlements`, { page, limit });
+    return res.data;
+  }
+
+  public static async recordSettlement(
+    groupId: string,
+    toUserId: string,
+    amountMinor: number,
+    note?: string,
+    fromUserId?: string
+  ): Promise<SettlementDTO> {
     const res = await ApiClient.post<SettlementDTO>(`/groups/${groupId}/settlements`, {
+      fromUserId,
       toUserId,
       amountMinor,
       note,
     });
-    return res.data;
-  }
-
-  public static async getGroupSettlements(groupId: string): Promise<SettlementDTO[]> {
-    const res = await ApiClient.get<SettlementDTO[]>(`/groups/${groupId}/settlements`);
     return res.data;
   }
 
@@ -313,5 +364,49 @@ export class SettleApiService {
   public static async getDashboard(): Promise<DashboardDTO> {
     const res = await ApiClient.get<DashboardDTO>('/dashboard');
     return res.data;
+  }
+
+  // --- Recurring Schedules (Monthly Bills) ---
+  public static async getGroupRecurringSchedules(groupId: string): Promise<RecurringScheduleDTO[]> {
+    const res = await ApiClient.get<RecurringScheduleDTO[]>(`/groups/${groupId}/recurring-schedules`);
+    return res.data;
+  }
+
+  public static async createRecurringSchedule(
+    groupId: string,
+    data: {
+      title: string;
+      amountMinor: number;
+      currency?: string;
+      category?: string;
+      paidByUserId?: string;
+      frequency?: 'WEEKLY' | 'BIWEEKLY' | 'MONTHLY' | 'YEARLY';
+      behavior?: 'AUTO_ADD' | 'REMIND_CONFIRM';
+      dayOfMonth?: number;
+      startDate?: string;
+      endDate?: string | null;
+    }
+  ): Promise<RecurringScheduleDTO> {
+    const res = await ApiClient.post<RecurringScheduleDTO>(`/groups/${groupId}/recurring-schedules`, data);
+    return res.data;
+  }
+
+  public static async updateRecurringSchedule(
+    scheduleId: string,
+    data: Partial<{
+      title: string;
+      amountMinor: number;
+      category: string;
+      frequency: 'WEEKLY' | 'BIWEEKLY' | 'MONTHLY' | 'YEARLY';
+      behavior: 'AUTO_ADD' | 'REMIND_CONFIRM';
+      isActive: boolean;
+    }>
+  ): Promise<RecurringScheduleDTO> {
+    const res = await ApiClient.patch<RecurringScheduleDTO>(`/recurring-schedules/${scheduleId}`, data);
+    return res.data;
+  }
+
+  public static async deleteRecurringSchedule(scheduleId: string): Promise<void> {
+    await ApiClient.delete(`/recurring-schedules/${scheduleId}`);
   }
 }

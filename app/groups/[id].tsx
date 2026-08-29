@@ -1,5 +1,5 @@
-import { useEffect, useState, useCallback } from 'react';
-import { View, ScrollView, StyleSheet, ActivityIndicator, Pressable, Modal } from 'react-native';
+import { useEffect, useState, useCallback, useMemo } from 'react';
+import { View, ScrollView, StyleSheet, ActivityIndicator, Pressable, Modal, RefreshControl } from 'react-native';
 import { useLocalSearchParams, useRouter, Stack } from 'expo-router';
 import {
   Text,
@@ -10,12 +10,25 @@ import {
   Avatar,
   ExpenseActivityRow,
   EmptyState,
+  GroupAnalyticsCharts,
+  OfflineSyncBanner,
 } from '@/components';
 import { useAppTheme } from '@/hooks/useAppTheme';
 import { SettleApiService } from '@/services/api/settleApi';
 import { GroupDTO, ExpenseDTO, GroupBalancesDTO, UserDTO } from '@/services/api/types';
 import { useAppStore } from '@/store/appStore';
 import { shareGroupInvite, copyToClipboard, buildInviteUrl } from '@/services/invitations/inviteUtils';
+
+export type ExpenseTimeFilter =
+  | 'TODAY'
+  | 'YESTERDAY'
+  | 'THIS_WEEK'
+  | 'THIS_MONTH'
+  | 'LAST_MONTH'
+  | 'LAST_3_MONTHS'
+  | 'LAST_6_MONTHS'
+  | 'THIS_YEAR'
+  | 'ALL';
 
 export default function GroupOverviewScreen() {
   const { id } = useLocalSearchParams<{ id: string }>();
@@ -27,37 +40,53 @@ export default function GroupOverviewScreen() {
   const [group, setGroup] = useState<GroupDTO | null>(null);
   const [expenses, setExpenses] = useState<ExpenseDTO[]>([]);
   const [balances, setBalances] = useState<GroupBalancesDTO | null>(null);
-  const [activeTab, setActiveTab] = useState<'overview' | 'expenses' | 'balances' | 'settle'>('overview');
+  const [recurringSchedules, setRecurringSchedules] = useState<any[]>([]);
+  const [recurringModalVisible, setRecurringModalVisible] = useState(false);
+  const [activeTab, setActiveTab] = useState<'overview' | 'expenses' | 'bills' | 'charts' | 'balances' | 'settle'>('overview');
+  const [expenseTimeFilter, setExpenseTimeFilter] = useState<ExpenseTimeFilter>('THIS_MONTH');
   const [loading, setLoading] = useState(true);
+  const [refreshing, setRefreshing] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [inviteModalVisible, setInviteModalVisible] = useState(false);
   const [membersModalVisible, setMembersModalVisible] = useState(false);
   const [copiedCode, setCopiedCode] = useState(false);
   const [regeneratingInvite, setRegeneratingInvite] = useState(false);
 
-  const loadGroupDetails = useCallback(async () => {
+  // New recurring schedule form state
+  const [recTitle, setRecTitle] = useState('');
+  const [recAmount, setRecAmount] = useState('');
+  const [recDay, setRecDay] = useState('1');
+  const [recBehavior, setRecBehavior] = useState<'AUTO_ADD' | 'REMIND_CONFIRM'>('AUTO_ADD');
+  const [recFrequency] = useState<'MONTHLY' | 'WEEKLY'>('MONTHLY');
+  const [submittingRec, setSubmittingRec] = useState(false);
+
+  const loadGroupDetails = useCallback(async (isInitial = false) => {
     if (!id) {
       setError('No group ID provided');
       setLoading(false);
       return;
     }
     try {
-      setLoading(true);
+      if (isInitial && !group) {
+        setLoading(true);
+      }
       setError(null);
 
       // Attempt live backend API call first
       try {
-        const [user, groupData, expList, groupBals] = await Promise.all([
+        const [user, groupData, expList, groupBals, schedules] = await Promise.all([
           SettleApiService.getMe(),
           SettleApiService.getGroupDetails(id),
           SettleApiService.getGroupExpenses(id),
           SettleApiService.getGroupBalances(id),
+          SettleApiService.getGroupRecurringSchedules(id).catch(() => []),
         ]);
 
         setCurrentUser(user);
         setGroup(groupData);
         setExpenses(expList);
         setBalances(groupBals);
+        setRecurringSchedules(schedules);
         return;
       } catch (backendErr) {
         // If not found on backend (e.g. local dev SQLite seed group), fall back gracefully to local SQLite database
@@ -145,12 +174,81 @@ export default function GroupOverviewScreen() {
       setError(err?.message || 'Group not found or access denied.');
     } finally {
       setLoading(false);
+      setRefreshing(false);
     }
   }, [id]);
 
   useEffect(() => {
     loadGroupDetails();
   }, [loadGroupDetails, dataVersion]);
+
+  const onRefresh = () => {
+    setRefreshing(true);
+    loadGroupDetails();
+  };
+
+  // Filtered expenses for selected time duration (Hook MUST be declared before any conditional early returns):
+  // Today, Yesterday, This week, This month, Last month, Last 3 months, Last 6 months, This year, All
+  const { filteredExpenses, filteredTotalSpendMinor } = useMemo(() => {
+    const now = new Date();
+    const startOfToday = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+    const startOfYesterday = new Date(now.getFullYear(), now.getMonth(), now.getDate() - 1);
+    const endOfYesterday = new Date(now.getFullYear(), now.getMonth(), now.getDate(), 0, 0, 0, -1);
+
+    // Start of this week (Monday)
+    const dayOfWeek = now.getDay();
+    const distanceToMonday = (dayOfWeek + 6) % 7;
+    const startOfWeek = new Date(now.getFullYear(), now.getMonth(), now.getDate() - distanceToMonday);
+
+    const startOfThisMonth = new Date(now.getFullYear(), now.getMonth(), 1);
+    const startOfLastMonth = new Date(now.getFullYear(), now.getMonth() - 1, 1);
+    const endOfLastMonth = new Date(now.getFullYear(), now.getMonth(), 0, 23, 59, 59, 999);
+
+    const startOfLast3Months = new Date(now.getFullYear(), now.getMonth() - 2, 1);
+    const startOfLast6Months = new Date(now.getFullYear(), now.getMonth() - 5, 1);
+    const startOfThisYear = new Date(now.getFullYear(), 0, 1);
+
+    const filtered = expenses.filter((exp) => {
+      const expDate = new Date(exp.createdAt || (exp as any).date || now);
+
+      switch (expenseTimeFilter) {
+        case 'TODAY':
+          return expDate >= startOfToday;
+        case 'YESTERDAY':
+          return expDate >= startOfYesterday && expDate <= endOfYesterday;
+        case 'THIS_WEEK':
+          return expDate >= startOfWeek;
+        case 'THIS_MONTH':
+          return expDate >= startOfThisMonth;
+        case 'LAST_MONTH':
+          return expDate >= startOfLastMonth && expDate <= endOfLastMonth;
+        case 'LAST_3_MONTHS':
+          return expDate >= startOfLast3Months;
+        case 'LAST_6_MONTHS':
+          return expDate >= startOfLast6Months;
+        case 'THIS_YEAR':
+          return expDate >= startOfThisYear;
+        case 'ALL':
+        default:
+          return true;
+      }
+    });
+
+    const totalSpend = filtered.reduce((acc, curr) => acc + curr.amountMinor, 0);
+    return { filteredExpenses: filtered, filteredTotalSpendMinor: totalSpend };
+  }, [expenses, expenseTimeFilter]);
+
+  const tabList = useMemo(() => {
+    const list: Array<'overview' | 'expenses' | 'bills' | 'charts' | 'balances' | 'settle'> = [
+      'overview',
+      'expenses',
+      'bills',
+      'charts',
+      'balances',
+      'settle',
+    ];
+    return list;
+  }, []);
 
   if (loading) {
     return (
@@ -235,12 +333,36 @@ export default function GroupOverviewScreen() {
     return 0;
   };
 
-  const handleTabPress = (tab: 'overview' | 'expenses' | 'balances' | 'settle') => {
+  const handleTabPress = (tab: 'overview' | 'expenses' | 'bills' | 'charts' | 'balances' | 'settle') => {
     setActiveTab(tab);
     if (tab === 'settle') {
       router.push(`/groups/${group.id}/settle` as any);
     }
-  };    return (
+  };
+
+  const handleCreateRecurring = async () => {
+    if (!recTitle || !recAmount || isNaN(Number(recAmount))) return;
+    try {
+      setSubmittingRec(true);
+      await SettleApiService.createRecurringSchedule(group.id, {
+        title: recTitle.trim(),
+        amountMinor: Number(recAmount),
+        frequency: recFrequency,
+        behavior: recBehavior,
+        dayOfMonth: Number(recDay) || 1,
+      });
+      setRecTitle('');
+      setRecAmount('');
+      setRecurringModalVisible(false);
+      loadGroupDetails();
+    } catch (err) {
+      console.error('Failed to create recurring bill:', err);
+    } finally {
+      setSubmittingRec(false);
+    }
+  };
+
+  return (
     <View style={[styles.container, { backgroundColor: theme.colors.background }]}>
       {/* 1. Detail Header */}
       <DetailHeader
@@ -248,7 +370,14 @@ export default function GroupOverviewScreen() {
         onBackPress={() => router.back()}
       />
 
-      <ScrollView contentContainerStyle={styles.content} showsVerticalScrollIndicator={false}>
+      {/* Offline Sync Banner (Travel & Goa Mode) */}
+      <OfflineSyncBanner />
+
+      <ScrollView
+        contentContainerStyle={styles.content}
+        showsVerticalScrollIndicator={false}
+        refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} />}
+      >
         {/* 2. Group Title & Context */}
         <View style={styles.groupHeroSection}>
           <Text variant="displayHero" weight="bold" style={styles.groupTitle}>
@@ -344,10 +473,16 @@ export default function GroupOverviewScreen() {
           </View>
         </View>
 
-        {/* 4. Sub-Navigation Tabs */}
-        <View style={styles.tabNavRow}>
-          {(['overview', 'expenses', 'balances', 'settle'] as const).map((t) => {
+        {/* 4. Sub-Navigation Tabs (Horizontally Scrollable) */}
+        <ScrollView
+          horizontal
+          showsHorizontalScrollIndicator={false}
+          contentContainerStyle={styles.tabNavScrollContainer}
+          style={styles.tabNavScrollView}
+        >
+          {tabList.map((t) => {
             const isSelected = activeTab === t;
+            const tabLabel = t === 'bills' ? '🔁 Bills' : t.charAt(0).toUpperCase() + t.slice(1);
             return (
               <Pressable
                 key={t}
@@ -366,12 +501,12 @@ export default function GroupOverviewScreen() {
                   color={isSelected ? theme.colors.textPrimary : theme.colors.textMuted}
                   style={styles.tabText}
                 >
-                  {t.charAt(0).toUpperCase() + t.slice(1)}
+                  {tabLabel}
                 </Text>
               </Pressable>
             );
           })}
-        </View>
+        </ScrollView>
 
         {/* 5. TAB CONTENTS */}
 
@@ -401,13 +536,15 @@ export default function GroupOverviewScreen() {
                 {expenses.slice(0, 5).map((exp, idx) => {
                   const userShareMinor = getUserShareMinor(exp);
                   const isPayer = exp.paidByUserId === currentUser?.id;
+                  const expDate = new Date(exp.createdAt);
+                  const formattedTimestamp = `${expDate.toLocaleDateString()} · ${expDate.toLocaleTimeString([], { hour: 'numeric', minute: '2-digit', hour12: true })}`;
 
                   return (
                     <ExpenseActivityRow
                       key={exp.id}
                       title={exp.description}
                       groupName={group.name}
-                      timestamp={new Date(exp.createdAt).toLocaleDateString()}
+                      timestamp={formattedTimestamp}
                       payerName={isPayer ? 'You' : exp.paidByUserName}
                       totalAmountMinor={exp.amountMinor}
                       userShareMinor={userShareMinor}
@@ -423,12 +560,13 @@ export default function GroupOverviewScreen() {
           </View>
         )}
 
-        {/* TAB B: EXPENSES (Complete Ledger) */}
+        {/* TAB B: EXPENSES (Complete Ledger with Time Duration Filtering & Total Spend) */}
         {activeTab === 'expenses' && (
           <View style={styles.tabSection}>
+            {/* 1. Header with Add Expense */}
             <View style={styles.recentExpensesHeader}>
               <Text variant="title" weight="bold">
-                All Expenses ({expenses.length})
+                All Expenses ({filteredExpenses.length})
               </Text>
               <Pressable onPress={() => router.push(`/expenses/new?groupId=${group.id}` as any)}>
                 <Text variant="caption" weight="bold" color={theme.colors.textSecondary}>
@@ -437,31 +575,95 @@ export default function GroupOverviewScreen() {
               </Pressable>
             </View>
 
-            {expenses.length === 0 ? (
+            {/* 2. Total Filtered Spend Display Card */}
+            <Surface variant="card" style={styles.expenseTotalSummaryCard}>
+              <View style={styles.expenseTotalSummaryRow}>
+                <View>
+                  <Text variant="caption" weight="bold" color={theme.colors.textMuted} style={{ letterSpacing: 0.5 }}>
+                    TOTAL EXPENSE (SELECTED DURATION)
+                  </Text>
+                  <Text variant="title" weight="bold" color={theme.colors.textPrimary} style={{ marginTop: 2 }}>
+                    {group.currency} {(filteredTotalSpendMinor / 100).toFixed(2)}
+                  </Text>
+                </View>
+                <View style={{ alignItems: 'flex-end' }}>
+                  <Text variant="caption" color={theme.colors.textSecondary}>
+                    {filteredExpenses.length} expense{filteredExpenses.length === 1 ? '' : 's'}
+                  </Text>
+                </View>
+              </View>
+            </Surface>
+
+            {/* 3. Horizontal Time Filter Selector */}
+            <ScrollView
+              horizontal
+              showsHorizontalScrollIndicator={false}
+              contentContainerStyle={styles.timeFilterScrollRow}
+            >
+              {[
+                { id: 'THIS_MONTH', label: 'This Month' },
+                { id: 'TODAY', label: 'Today' },
+                { id: 'YESTERDAY', label: 'Yesterday' },
+                { id: 'THIS_WEEK', label: 'This Week' },
+                { id: 'LAST_MONTH', label: 'Last Month' },
+                { id: 'LAST_3_MONTHS', label: 'Last 3 Months' },
+                { id: 'LAST_6_MONTHS', label: 'Last 6 Months' },
+                { id: 'THIS_YEAR', label: 'This Year' },
+                { id: 'ALL', label: 'All Time' },
+              ].map((tf) => {
+                const isSelected = expenseTimeFilter === tf.id;
+                return (
+                  <Pressable
+                    key={tf.id}
+                    onPress={() => setExpenseTimeFilter(tf.id as ExpenseTimeFilter)}
+                    style={[
+                      styles.timeFilterPill,
+                      {
+                        backgroundColor: isSelected ? theme.colors.primary : theme.colors.surfaceSubtle,
+                        borderColor: isSelected ? theme.colors.primary : theme.colors.borderSubtle,
+                      },
+                    ]}
+                  >
+                    <Text
+                      variant="caption"
+                      weight={isSelected ? 'bold' : 'medium'}
+                      color={isSelected ? '#FFFFFF' : theme.colors.textSecondary}
+                    >
+                      {tf.label}
+                    </Text>
+                  </Pressable>
+                );
+              })}
+            </ScrollView>
+
+            {/* 4. Filtered Expense Ledger */}
+            {filteredExpenses.length === 0 ? (
               <EmptyState
-                title="No expenses yet"
-                description="Add an expense to start tracking."
+                title="No expenses in this period"
+                description={`No expenses recorded for ${expenseTimeFilter.toLowerCase().replace(/_/g, ' ')}.`}
                 actionLabel="+ Add Expense"
                 onAction={() => router.push(`/expenses/new?groupId=${group.id}` as any)}
               />
             ) : (
               <View style={styles.expensesList}>
-                {expenses.map((exp, idx) => {
+                {filteredExpenses.map((exp, idx) => {
                   const userShareMinor = getUserShareMinor(exp);
                   const isPayer = exp.paidByUserId === currentUser?.id;
+                  const expDate = new Date(exp.createdAt);
+                  const formattedTimestamp = `${expDate.toLocaleDateString()} · ${expDate.toLocaleTimeString([], { hour: 'numeric', minute: '2-digit', hour12: true })}`;
 
                   return (
                     <ExpenseActivityRow
                       key={exp.id}
                       title={exp.description}
                       groupName={group.name}
-                      timestamp={new Date(exp.createdAt).toLocaleDateString()}
+                      timestamp={formattedTimestamp}
                       payerName={isPayer ? 'You' : exp.paidByUserName}
                       totalAmountMinor={exp.amountMinor}
                       userShareMinor={userShareMinor}
                       currency={exp.currency}
                       categoryIconName="receipt-outline"
-                      showDivider={idx < expenses.length - 1}
+                      showDivider={idx < filteredExpenses.length - 1}
                       onPress={() => router.push(`/expenses/${exp.id}` as any)}
                     />
                   );
@@ -471,7 +673,119 @@ export default function GroupOverviewScreen() {
           </View>
         )}
 
-        {/* TAB C: BALANCES (Group-level Member Overview) */}
+        {/* TAB BILLS: RECURRING EXPENSES & SCHEDULES */}
+        {activeTab === 'bills' && (
+          <View style={styles.tabSection}>
+            <View style={styles.billsHeaderRow}>
+              <View>
+                <Text variant="title" weight="bold">
+                  Monthly Bills & Schedules
+                </Text>
+                <Text variant="caption" color={theme.colors.textMuted}>
+                  Automated recurring expenses and rent reminders
+                </Text>
+              </View>
+              <Button
+                title="+ Set Bill"
+                variant="primary"
+                size="small"
+                onPress={() => setRecurringModalVisible(true)}
+              />
+            </View>
+
+            {recurringSchedules.length === 0 ? (
+              <Surface variant="subtle" style={{ padding: 24, borderRadius: 16, marginTop: 12 }}>
+                <EmptyState
+                  title="No Recurring Bills"
+                  description="Add monthly rent, internet, or Netflix schedules to automatically generate expenses on the due date."
+                  actionLabel="+ Add Recurring Bill"
+                  onAction={() => setRecurringModalVisible(true)}
+                />
+              </Surface>
+            ) : (
+              <View style={{ gap: 10, marginTop: 12 }}>
+                {recurringSchedules.map((schedule) => {
+                  const nextDate = new Date(schedule.nextOccurrenceAt);
+                  const formattedNext = `${nextDate.toLocaleDateString([], { month: 'short', day: 'numeric' })}`;
+
+                  return (
+                    <Surface key={schedule.id} variant="card" style={styles.recurringCard}>
+                      <View style={styles.recurringTopRow}>
+                        <View style={{ flex: 1, gap: 2 }}>
+                          <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+                            <Text variant="body" weight="bold">
+                              {schedule.title}
+                            </Text>
+                            <View
+                              style={[
+                                styles.behaviorBadge,
+                                {
+                                  backgroundColor:
+                                    schedule.behavior === 'AUTO_ADD'
+                                      ? 'rgba(16, 185, 129, 0.15)'
+                                      : 'rgba(245, 158, 11, 0.15)',
+                                },
+                              ]}
+                            >
+                              <Text
+                                variant="caption"
+                                weight="bold"
+                                color={schedule.behavior === 'AUTO_ADD' ? '#10B981' : '#F59E0B'}
+                                style={{ fontSize: 10 }}
+                              >
+                                {schedule.behavior === 'AUTO_ADD' ? 'AUTO-POST' : 'REMINDER'}
+                              </Text>
+                            </View>
+                          </View>
+                          <Text variant="caption" color={theme.colors.textMuted}>
+                            {schedule.frequency} · Due on {schedule.dayOfMonth ? `${schedule.dayOfMonth}th` : 'scheduled date'} · Next: {formattedNext}
+                          </Text>
+                          <Text variant="caption" color={theme.colors.textSecondary}>
+                            Paid by {schedule.paidByUserName || 'Member'}
+                          </Text>
+                        </View>
+
+                        <View style={{ alignItems: 'flex-end', gap: 4 }}>
+                          <Text variant="title" weight="bold" color={theme.colors.primary}>
+                            ₹{schedule.amountMinor.toLocaleString('en-IN', { minimumFractionDigits: 0 })}
+                          </Text>
+                          <Pressable
+                            onPress={async () => {
+                              try {
+                                await SettleApiService.deleteRecurringSchedule(schedule.id);
+                                loadGroupDetails();
+                              } catch (e) {
+                                console.error('Failed to remove schedule:', e);
+                              }
+                            }}
+                            hitSlop={8}
+                          >
+                            <Text variant="caption" color={theme.colors.negative} weight="medium">
+                              Remove
+                            </Text>
+                          </Pressable>
+                        </View>
+                      </View>
+                    </Surface>
+                  );
+                })}
+              </View>
+            )}
+          </View>
+        )}
+
+        {/* TAB C: CHARTS & ANALYTICS */}
+        {activeTab === 'charts' && (
+          <View style={styles.tabSection}>
+            <GroupAnalyticsCharts
+              expenses={expenses}
+              currency={group.currency}
+              currentUser={currentUser}
+            />
+          </View>
+        )}
+
+        {/* TAB D: BALANCES (Group-level Member Overview) */}
         {activeTab === 'balances' && (
           <View style={styles.tabSection}>
             <Text variant="title" weight="bold" style={{ marginBottom: 12 }}>
@@ -530,9 +844,9 @@ export default function GroupOverviewScreen() {
       </ScrollView>
 
       {/* Invite People Sheet Modal */}
-      <Modal visible={inviteModalVisible} animationType="slide" transparent>
-        <View style={[styles.modalOverlay, { backgroundColor: theme.colors.overlay }]}>
-          <Surface variant="elevated" style={styles.modalContent}>
+      <Modal visible={inviteModalVisible} animationType="slide" transparent onRequestClose={() => setInviteModalVisible(false)}>
+        <Pressable style={[styles.modalOverlay, { backgroundColor: theme.colors.overlay }]} onPress={() => setInviteModalVisible(false)}>
+          <Pressable style={[styles.modalContent, { backgroundColor: theme.colors.surface }]} onPress={(e) => e.stopPropagation()}>
             <View style={styles.modalHeaderRow}>
               <Text variant="title" weight="bold">
                 Invite to {group.name}
@@ -577,18 +891,18 @@ export default function GroupOverviewScreen() {
                 </View>
 
                 <Pressable onPress={handleCopyInviteCode} style={styles.copyCodeOption}>
-                  <Text variant="caption" weight="semibold" color={theme.colors.textSecondary}>
-                    Copy Code Only ({group.activeInvite.inviteCode})
+                  <Text variant="caption" weight="semibold" color={theme.colors.primary}>
+                    Copy code only ({group.activeInvite.inviteCode})
                   </Text>
                 </Pressable>
               </View>
             ) : (
               <View style={styles.noInviteState}>
-                <Text variant="body" color={theme.colors.textMuted}>
-                  No active invite for this group.
+                <Text variant="body" color={theme.colors.textSecondary} align="center">
+                  No active invite link for this group yet.
                 </Text>
                 <Button
-                  title={regeneratingInvite ? 'Generating...' : 'Generate New Invite'}
+                  title="Generate Invite Link"
                   variant="primary"
                   size="medium"
                   onPress={handleRegenerateInvite}
@@ -607,14 +921,14 @@ export default function GroupOverviewScreen() {
                 </Pressable>
               </View>
             )}
-          </Surface>
-        </View>
+          </Pressable>
+        </Pressable>
       </Modal>
 
       {/* Members Modal (Full Names, Avatars, Roles) */}
-      <Modal visible={membersModalVisible} animationType="slide" transparent>
-        <View style={[styles.modalOverlay, { backgroundColor: theme.colors.overlay }]}>
-          <Surface variant="elevated" style={styles.membersModalContent}>
+      <Modal visible={membersModalVisible} animationType="slide" transparent onRequestClose={() => setMembersModalVisible(false)}>
+        <Pressable style={[styles.modalOverlay, { backgroundColor: theme.colors.overlay }]} onPress={() => setMembersModalVisible(false)}>
+          <Pressable style={[styles.membersModalContent, { backgroundColor: theme.colors.surface }]} onPress={(e) => e.stopPropagation()}>
             <View style={styles.membersModalHeader}>
               <View>
                 <Text variant="headline" style={{ fontWeight: '700' }}>
@@ -698,8 +1012,225 @@ export default function GroupOverviewScreen() {
               onPress={() => setMembersModalVisible(false)}
               style={{ marginTop: 8 }}
             />
-          </Surface>
-        </View>
+          </Pressable>
+        </Pressable>
+      </Modal>
+
+      {/* Set Recurring Bill / Rent Schedule Modal */}
+      <Modal
+        visible={recurringModalVisible}
+        animationType="slide"
+        transparent
+        onRequestClose={() => setRecurringModalVisible(false)}
+      >
+        <Pressable
+          style={[styles.modalOverlay, { backgroundColor: theme.colors.overlay }]}
+          onPress={() => setRecurringModalVisible(false)}
+        >
+          <Pressable
+            style={[styles.membersModalContent, { backgroundColor: theme.colors.surface }]}
+            onPress={(e) => e.stopPropagation()}
+          >
+            <View style={styles.membersModalHeader}>
+              <View>
+                <Text variant="headline" style={{ fontWeight: '700' }}>
+                  Set Recurring Bill
+                </Text>
+                <Text variant="caption" color={theme.colors.textMuted}>
+                  Automate regular rent, wifi, or subscriptions
+                </Text>
+              </View>
+              <Pressable
+                onPress={() => setRecurringModalVisible(false)}
+                style={[styles.closeBtn, { backgroundColor: theme.colors.surfaceSubtle }]}
+                hitSlop={8}
+              >
+                <Text variant="body" weight="bold" color={theme.colors.textMuted}>
+                  ✕
+                </Text>
+              </Pressable>
+            </View>
+
+            <View style={{ gap: 12, paddingVertical: 8 }}>
+              <View style={styles.formField}>
+                <Text variant="caption" weight="bold" color={theme.colors.textMuted}>
+                  BILL TITLE
+                </Text>
+                <Surface variant="subtle" style={styles.inputSurface}>
+                  <Text
+                    variant="body"
+                    style={{ flex: 1, padding: 8 }}
+                    // @ts-ignore
+                    accessibilityRole="text"
+                  >
+                    <input
+                      placeholder="e.g. Apartment Rent, WiFi, Netflix"
+                      value={recTitle}
+                      onChange={(e: any) => setRecTitle(e.target.value)}
+                      style={{
+                        background: 'transparent',
+                        border: 'none',
+                        color: theme.colors.textPrimary,
+                        fontSize: 16,
+                        width: '100%',
+                        outline: 'none',
+                      }}
+                    />
+                  </Text>
+                </Surface>
+              </View>
+
+              <View style={styles.formField}>
+                <Text variant="caption" weight="bold" color={theme.colors.textMuted}>
+                  AMOUNT (₹)
+                </Text>
+                <Surface variant="subtle" style={styles.inputSurface}>
+                  <Text
+                    variant="body"
+                    style={{ flex: 1, padding: 8 }}
+                    // @ts-ignore
+                    accessibilityRole="text"
+                  >
+                    <input
+                      type="number"
+                      placeholder="e.g. 25000"
+                      value={recAmount}
+                      onChange={(e: any) => setRecAmount(e.target.value)}
+                      style={{
+                        background: 'transparent',
+                        border: 'none',
+                        color: theme.colors.textPrimary,
+                        fontSize: 16,
+                        width: '100%',
+                        outline: 'none',
+                      }}
+                    />
+                  </Text>
+                </Surface>
+              </View>
+
+              <View style={styles.formField}>
+                <Text variant="caption" weight="bold" color={theme.colors.textMuted}>
+                  DUE DAY OF MONTH (1 - 31)
+                </Text>
+                <Surface variant="subtle" style={styles.inputSurface}>
+                  <Text
+                    variant="body"
+                    style={{ flex: 1, padding: 8 }}
+                    // @ts-ignore
+                    accessibilityRole="text"
+                  >
+                    <input
+                      type="number"
+                      min="1"
+                      max="31"
+                      value={recDay}
+                      onChange={(e: any) => setRecDay(e.target.value)}
+                      style={{
+                        background: 'transparent',
+                        border: 'none',
+                        color: theme.colors.textPrimary,
+                        fontSize: 16,
+                        width: '100%',
+                        outline: 'none',
+                      }}
+                    />
+                  </Text>
+                </Surface>
+              </View>
+
+              <View style={styles.formField}>
+                <Text variant="caption" weight="bold" color={theme.colors.textMuted}>
+                  HOW SHOULD THIS REPEAT?
+                </Text>
+                <View style={{ gap: 8, marginTop: 4 }}>
+                  <Pressable
+                    onPress={() => setRecBehavior('AUTO_ADD')}
+                    style={[
+                      styles.simpleBehaviorCard,
+                      {
+                        backgroundColor:
+                          recBehavior === 'AUTO_ADD'
+                            ? theme.colors.surfaceSubtle
+                            : theme.colors.surface,
+                        borderColor:
+                          recBehavior === 'AUTO_ADD'
+                            ? theme.colors.primary
+                            : theme.colors.borderSubtle,
+                        borderWidth: recBehavior === 'AUTO_ADD' ? 2 : 1,
+                      },
+                    ]}
+                  >
+                    <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' }}>
+                      <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10 }}>
+                        <Text style={{ fontSize: 18 }}>⚡</Text>
+                        <View>
+                          <Text variant="body" weight="bold">
+                            Add automatically
+                          </Text>
+                          <Text variant="caption" color={theme.colors.textMuted}>
+                            Post expense on the 1st without asking (e.g. Rent, Netflix)
+                          </Text>
+                        </View>
+                      </View>
+                      {recBehavior === 'AUTO_ADD' && (
+                        <Text variant="body" weight="bold" color={theme.colors.primary}>
+                          ✓
+                        </Text>
+                      )}
+                    </View>
+                  </Pressable>
+
+                  <Pressable
+                    onPress={() => setRecBehavior('REMIND_CONFIRM')}
+                    style={[
+                      styles.simpleBehaviorCard,
+                      {
+                        backgroundColor:
+                          recBehavior === 'REMIND_CONFIRM'
+                            ? theme.colors.surfaceSubtle
+                            : theme.colors.surface,
+                        borderColor:
+                          recBehavior === 'REMIND_CONFIRM'
+                            ? theme.colors.primary
+                            : theme.colors.borderSubtle,
+                        borderWidth: recBehavior === 'REMIND_CONFIRM' ? 2 : 1,
+                      },
+                    ]}
+                  >
+                    <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' }}>
+                      <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10 }}>
+                        <Text style={{ fontSize: 18 }}>🔔</Text>
+                        <View>
+                          <Text variant="body" weight="bold">
+                            Remind me first
+                          </Text>
+                          <Text variant="caption" color={theme.colors.textMuted}>
+                            Send notification to confirm amount (e.g. Electricity, Maid)
+                          </Text>
+                        </View>
+                      </View>
+                      {recBehavior === 'REMIND_CONFIRM' && (
+                        <Text variant="body" weight="bold" color={theme.colors.primary}>
+                          ✓
+                        </Text>
+                      )}
+                    </View>
+                  </Pressable>
+                </View>
+              </View>
+
+              <Button
+                title="Create Recurring Schedule"
+                variant="primary"
+                size="large"
+                onPress={handleCreateRecurring}
+                loading={submittingRec}
+                style={{ marginTop: 10 }}
+              />
+            </View>
+          </Pressable>
+        </Pressable>
       </Modal>
     </View>
   );
@@ -794,14 +1325,19 @@ const styles = StyleSheet.create({
     fontSize: 26,
     fontWeight: '800',
   },
-  tabNavRow: {
-    flexDirection: 'row',
+  tabNavScrollView: {
     borderBottomWidth: 1,
     borderBottomColor: '#F1F5F9',
   },
+  tabNavScrollContainer: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    paddingRight: 20,
+  },
   tabItem: {
     paddingVertical: 10,
-    marginRight: 20,
+    paddingHorizontal: 12,
     paddingBottom: 8,
   },
   tabText: {
@@ -921,5 +1457,62 @@ const styles = StyleSheet.create({
     paddingHorizontal: 8,
     paddingVertical: 4,
     borderRadius: 8,
+  },
+  expenseTotalSummaryCard: {
+    padding: 14,
+    borderRadius: 14,
+    marginTop: 4,
+    marginBottom: 6,
+  },
+  expenseTotalSummaryRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+  },
+  timeFilterScrollRow: {
+    flexDirection: 'row',
+    gap: 8,
+    paddingVertical: 4,
+    marginBottom: 6,
+  },
+  timeFilterPill: {
+    paddingHorizontal: 12,
+    paddingVertical: 6,
+    borderRadius: 20,
+    borderWidth: 1,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  billsHeaderRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    marginBottom: 4,
+  },
+  recurringCard: {
+    padding: 16,
+    borderRadius: 16,
+  },
+  recurringTopRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 12,
+  },
+  behaviorBadge: {
+    paddingHorizontal: 8,
+    paddingVertical: 2,
+    borderRadius: 6,
+  },
+  formField: {
+    gap: 4,
+  },
+  inputSurface: {
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: 'rgba(255, 255, 255, 0.08)',
+  },
+  simpleBehaviorCard: {
+    padding: 12,
+    borderRadius: 14,
   },
 });

@@ -7,6 +7,7 @@ import {
   NotFoundError,
   ValidationError,
   ConflictError,
+  ForbiddenError,
   FinancialInvariantError,
 } from '../../errors/AppError';
 import { CreateExpenseInput, UpdateExpenseInput, PaginationQuery } from './expense.schemas';
@@ -24,6 +25,12 @@ export interface ExpenseDetailsResponse {
   description: string;
   amountMinor: number;
   currency: string;
+  originalAmountMinor?: number;
+  originalCurrency?: string;
+  exchangeRate?: number;
+  isLocked?: boolean;
+  createdByUserId?: string;
+  allowedEditorIds?: string[];
   paidByUserId: string;
   paidByUserName: string;
   splitMethod: string;
@@ -73,7 +80,13 @@ export class ExpenseService {
           groupId: input.groupId,
           description: input.description.trim(),
           amountMinor: input.amountMinor,
-          currency: 'INR',
+          currency: input.currency || 'INR',
+          originalAmountMinor: input.originalAmountMinor,
+          originalCurrency: input.originalCurrency,
+          exchangeRate: input.exchangeRate,
+          isLocked: input.isLocked ?? false,
+          createdByUserId: authenticatedUserId,
+          allowedEditorIds: [authenticatedUserId],
           paidByUserId: input.paidByUserId,
           splitMethod: input.splitMethod as SplitMethod,
           category: input.category,
@@ -138,6 +151,17 @@ export class ExpenseService {
       console.error('Failed to send expense notifications to group members:', notifErr);
     }
 
+    // Invalidate Dashboard Cache & Broadcast Realtime Event
+    try {
+      const { DashboardService } = await import('../dashboard/dashboard.service');
+      const { RealtimeSyncService } = await import('../realtime/realtime.service');
+      const affectedUserIds = Array.from(new Set([input.paidByUserId, ...computedSplits.map((s) => s.userId)]));
+      await DashboardService.invalidateUserDashboard(affectedUserIds);
+      RealtimeSyncService.notifyUsers(affectedUserIds, { type: 'DATA_CHANGED', entity: 'EXPENSE', groupId: input.groupId });
+    } catch (cacheErr) {
+      console.warn('Failed to invalidate dashboard cache on expense creation:', cacheErr);
+    }
+
     return this.mapExpenseResponse(expense);
   }
 
@@ -177,6 +201,18 @@ export class ExpenseService {
     }
 
     await GroupService.verifyMembership(existing.groupId, authenticatedUserId);
+
+    // Enforce Lock Check: If locked, only creator or users in allowedEditorIds can edit
+    if (existing.isLocked) {
+      const isCreator = existing.createdByUserId === authenticatedUserId;
+      const isAllowed = existing.allowedEditorIds?.includes(authenticatedUserId);
+      if (!isCreator && !isAllowed) {
+        throw new ForbiddenError(
+          'This expense is locked by the creator. You must request edit access.',
+          'EXPENSE_LOCKED'
+        );
+      }
+    }
 
     const newAmountMinor = input.amountMinor ?? existing.amountMinor;
     const newPaidByUserId = input.paidByUserId ?? existing.paidByUserId;
@@ -260,6 +296,50 @@ export class ExpenseService {
       return exp;
     });
 
+    // Notify other group members about the updated expense
+    try {
+      const groupMembers = await prisma.groupMember.findMany({
+        where: { groupId: updated.groupId, leftAt: null, userId: { not: authenticatedUserId } },
+        select: { userId: true },
+      });
+
+      const actor = await prisma.user.findUnique({
+        where: { id: authenticatedUserId },
+        select: { name: true },
+      });
+      const actorName = actor?.name || 'A member';
+      const formattedAmount = (Number(updated.amountMinor) / 100).toFixed(2);
+
+      for (const member of groupMembers) {
+        await NotificationService.createNotification({
+          recipientUserId: member.userId,
+          actorUserId: authenticatedUserId,
+          type: 'EXPENSE_UPDATED',
+          groupId: updated.groupId,
+          groupName: updated.group.name,
+          title: `Expense Updated: ${updated.description}`,
+          message: `${actorName} edited "${updated.description}" (₹${formattedAmount})`,
+        });
+      }
+    } catch (notifErr) {
+      console.warn('Failed to send expense update notifications:', notifErr);
+    }
+
+    // Invalidate Dashboard Cache & Broadcast Realtime Event
+    try {
+      const { DashboardService } = await import('../dashboard/dashboard.service');
+      const { RealtimeSyncService } = await import('../realtime/realtime.service');
+      const allMembers = await prisma.groupMember.findMany({
+        where: { groupId: updated.groupId, leftAt: null },
+        select: { userId: true },
+      });
+      const memberIds = allMembers.map((m) => m.userId);
+      await DashboardService.invalidateUserDashboard(memberIds);
+      RealtimeSyncService.notifyUsers(memberIds, { type: 'DATA_CHANGED', entity: 'EXPENSE', groupId: updated.groupId });
+    } catch (cacheErr) {
+      console.warn('Failed to invalidate dashboard cache on expense update:', cacheErr);
+    }
+
     return this.mapExpenseResponse(updated);
   }
 
@@ -303,6 +383,21 @@ export class ExpenseService {
         },
       });
     });
+
+    // Invalidate Dashboard Cache & Broadcast Realtime Event
+    try {
+      const { DashboardService } = await import('../dashboard/dashboard.service');
+      const { RealtimeSyncService } = await import('../realtime/realtime.service');
+      const allMembers = await prisma.groupMember.findMany({
+        where: { groupId: existing.groupId, leftAt: null },
+        select: { userId: true },
+      });
+      const memberIds = allMembers.map((m) => m.userId);
+      await DashboardService.invalidateUserDashboard(memberIds);
+      RealtimeSyncService.notifyUsers(memberIds, { type: 'DATA_CHANGED', entity: 'EXPENSE', groupId: existing.groupId });
+    } catch (cacheErr) {
+      console.warn('Failed to invalidate dashboard cache on expense deletion:', cacheErr);
+    }
   }
 
   public static async getGroupExpenses(
@@ -320,6 +415,64 @@ export class ExpenseService {
       }),
       prisma.expense.findMany({
         where: { groupId, deletedAt: null },
+        include: {
+          group: { select: { name: true } },
+          payer: { select: { name: true } },
+          splits: {
+            include: { user: { select: { name: true } } },
+          },
+        },
+        orderBy: [{ createdAt: 'desc' }],
+        skip,
+        take: query.limit,
+      }),
+    ]);
+
+    return {
+      data: expenses.map((exp) => this.mapExpenseResponse(exp)),
+      meta: {
+        page: query.page,
+        limit: query.limit,
+        total,
+      },
+    };
+  }
+
+  public static async getUserExpenses(
+    userId: string,
+    query: PaginationQuery
+  ): Promise<{ data: ExpenseDetailsResponse[]; meta: { page: number; limit: number; total: number } }> {
+    // 1. Get all group IDs the user belongs to
+    const memberships = await prisma.groupMember.findMany({
+      where: { userId, leftAt: null },
+      select: { groupId: true },
+    });
+
+    const groupIds = memberships.map((m) => m.groupId);
+
+    const whereClause: any = {
+      deletedAt: null,
+    };
+
+    if (groupIds.length > 0) {
+      whereClause.OR = [
+        { groupId: { in: groupIds } },
+        { paidByUserId: userId },
+        { splits: { some: { userId } } },
+      ];
+    } else {
+      whereClause.OR = [
+        { paidByUserId: userId },
+        { splits: { some: { userId } } },
+      ];
+    }
+
+    const skip = (query.page - 1) * query.limit;
+
+    const [total, expenses] = await Promise.all([
+      prisma.expense.count({ where: whereClause }),
+      prisma.expense.findMany({
+        where: whereClause,
         include: {
           group: { select: { name: true } },
           payer: { select: { name: true } },
@@ -424,6 +577,54 @@ export class ExpenseService {
     throw new ValidationError(`Unsupported split method: ${splitMethod}`);
   }
 
+  public static async requestEditAccess(
+    expenseId: string,
+    authenticatedUserId: string
+  ): Promise<{ success: boolean; message: string }> {
+    const expense = await prisma.expense.findUnique({
+      where: { id: expenseId },
+      include: {
+        group: { select: { name: true } },
+      },
+    });
+
+    if (!expense || expense.deletedAt) {
+      throw new NotFoundError('Expense not found', 'EXPENSE_NOT_FOUND');
+    }
+
+    await GroupService.verifyMembership(expense.groupId, authenticatedUserId);
+
+    const requester = await prisma.user.findUnique({
+      where: { id: authenticatedUserId },
+      select: { name: true },
+    });
+    const requesterName = requester?.name || 'A group member';
+    const targetRecipientId = expense.createdByUserId || expense.paidByUserId;
+
+    if (targetRecipientId === authenticatedUserId) {
+      return { success: true, message: 'You already have edit access to this expense.' };
+    }
+
+    // Send edit access request notification to the creator/payer
+    await NotificationService.createNotification({
+      recipientUserId: targetRecipientId,
+      actorUserId: authenticatedUserId,
+      type: 'EXPENSE_EDIT_REQUEST',
+      groupId: expense.groupId,
+      groupName: expense.group.name,
+      expenseId: expense.id,
+      expenseTitle: expense.description,
+      amountMinor: Number(expense.amountMinor),
+      title: 'Edit Access Requested 🔒',
+      message: `${requesterName} is requesting permission to edit "${expense.description}".`,
+    });
+
+    return {
+      success: true,
+      message: `Request sent to ${expense.createdByUserId ? 'creator' : 'payer'}. You will be notified once approved.`,
+    };
+  }
+
   private static mapExpenseResponse(expense: any): ExpenseDetailsResponse {
     return {
       id: expense.id,
@@ -432,6 +633,12 @@ export class ExpenseService {
       description: expense.description,
       amountMinor: Number(expense.amountMinor),
       currency: expense.currency,
+      originalAmountMinor: expense.originalAmountMinor ? Number(expense.originalAmountMinor) : undefined,
+      originalCurrency: expense.originalCurrency || undefined,
+      exchangeRate: expense.exchangeRate ? Number(expense.exchangeRate) : undefined,
+      isLocked: expense.isLocked ?? false,
+      createdByUserId: expense.createdByUserId || undefined,
+      allowedEditorIds: expense.allowedEditorIds || [],
       paidByUserId: expense.paidByUserId,
       paidByUserName: expense.payer.name,
       splitMethod: expense.splitMethod,

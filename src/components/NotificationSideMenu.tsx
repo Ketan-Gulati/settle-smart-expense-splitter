@@ -8,6 +8,7 @@ import {
   Dimensions,
   ScrollView,
   TouchableWithoutFeedback,
+  Platform,
 } from 'react-native';
 import { useRouter } from 'expo-router';
 import { Text } from './Text';
@@ -22,6 +23,7 @@ export interface NotificationSideMenuProps {
 
 const { width: SCREEN_WIDTH } = Dimensions.get('window');
 const DRAWER_WIDTH = Math.min(SCREEN_WIDTH * 0.86, 360);
+const useNativeDriver = Platform.OS !== 'web';
 
 export const NotificationSideMenu: React.FC<NotificationSideMenuProps> = ({ visible, onClose }) => {
   const theme = useAppTheme();
@@ -34,13 +36,17 @@ export const NotificationSideMenu: React.FC<NotificationSideMenuProps> = ({ visi
 
   const checkUnread = useCallback(async () => {
     try {
-      const notifs = await SettleApiService.getNotifications();
-      const pending = notifs.filter((n) => n.status === 'PENDING');
-      setUnreadCount(pending.length);
+      const list = await SettleApiService.getNotifications();
+      const unread = list.filter((n) => n.status !== 'READ').length;
+      setUnreadCount(unread);
     } catch {
-      // Ignore network errors in drawer preview
+      // Ignore network failures for notification count
     }
   }, []);
+
+  useEffect(() => {
+    checkUnread();
+  }, [checkUnread]);
 
   useEffect(() => {
     if (visible) {
@@ -49,12 +55,12 @@ export const NotificationSideMenu: React.FC<NotificationSideMenuProps> = ({ visi
         Animated.timing(slideAnim, {
           toValue: 0,
           duration: 250,
-          useNativeDriver: true,
+          useNativeDriver,
         }),
         Animated.timing(fadeAnim, {
           toValue: 1,
           duration: 250,
-          useNativeDriver: true,
+          useNativeDriver,
         }),
       ]).start();
     } else {
@@ -62,12 +68,12 @@ export const NotificationSideMenu: React.FC<NotificationSideMenuProps> = ({ visi
         Animated.timing(slideAnim, {
           toValue: DRAWER_WIDTH,
           duration: 200,
-          useNativeDriver: true,
+          useNativeDriver,
         }),
         Animated.timing(fadeAnim, {
           toValue: 0,
           duration: 200,
-          useNativeDriver: true,
+          useNativeDriver,
         }),
       ]).start();
     }
@@ -122,7 +128,7 @@ export const NotificationSideMenu: React.FC<NotificationSideMenuProps> = ({ visi
             contentContainerStyle={styles.drawerContent}
             showsVerticalScrollIndicator={false}
           >
-            {/* Single clean Notifications tab */}
+            {/* 1. Notifications Action Center tab */}
             <Pressable
               onPress={handleOpenNotificationsPage}
               style={({ pressed }) => [
@@ -131,6 +137,7 @@ export const NotificationSideMenu: React.FC<NotificationSideMenuProps> = ({ visi
                   backgroundColor: theme.colors.surfaceSubtle,
                   borderColor: theme.colors.borderSubtle,
                   opacity: pressed ? 0.85 : 1,
+                  marginBottom: 10,
                 },
               ]}
             >
@@ -160,9 +167,41 @@ export const NotificationSideMenu: React.FC<NotificationSideMenuProps> = ({ visi
                     All caught up
                   </Text>
                 )}
-                <Text variant="body" color={theme.colors.textMuted}>
-                  →
-                </Text>
+                <Icon name="arrow-back" size={16} color={theme.colors.textMuted} style={{ transform: [{ rotate: '180deg' }] }} />
+              </View>
+            </Pressable>
+
+            {/* 2. My Expenses & Analytics tab */}
+            <Pressable
+              onPress={() => {
+                onClose();
+                router.push('/my-expenses' as any);
+              }}
+              style={({ pressed }) => [
+                styles.menuItemRow,
+                {
+                  backgroundColor: theme.colors.surfaceSubtle,
+                  borderColor: theme.colors.borderSubtle,
+                  opacity: pressed ? 0.85 : 1,
+                },
+              ]}
+            >
+              <View style={styles.menuItemLeft}>
+                <View style={[styles.iconWrap, { backgroundColor: 'rgba(2, 132, 199, 0.15)' }]}>
+                  <Icon name="card" size={20} color={theme.colors.primary} />
+                </View>
+                <View style={{ gap: 2 }}>
+                  <Text variant="body" weight="semibold" color={theme.colors.textPrimary}>
+                    My Expenses & Charts
+                  </Text>
+                  <Text variant="caption" color={theme.colors.textMuted}>
+                    Personal spending, categories & trends
+                  </Text>
+                </View>
+              </View>
+
+              <View style={styles.menuItemRight}>
+                <Icon name="arrow-back" size={16} color={theme.colors.textMuted} style={{ transform: [{ rotate: '180deg' }] }} />
               </View>
             </Pressable>
           </ScrollView>

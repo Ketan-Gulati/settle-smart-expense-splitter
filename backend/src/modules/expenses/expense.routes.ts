@@ -19,9 +19,11 @@ router.post(
   validateRequest({ body: createExpenseSchema }),
   ExpenseController.createExpense
 );
+router.get('/my', validateRequest({ query: paginationQuerySchema }), ExpenseController.getUserExpenses);
 router.get('/:expenseId', ExpenseController.getExpenseDetails);
 router.patch('/:expenseId', validateRequest({ body: updateExpenseSchema }), ExpenseController.updateExpense);
 router.delete('/:expenseId', ExpenseController.deleteExpense);
+router.post('/:expenseId/request-edit-access', ExpenseController.requestEditAccess);
 
 export const expenseRoutes = router;
 
