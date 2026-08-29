@@ -92,7 +92,7 @@ export default function MenuActionCenterScreen() {
             weight={activeTab === 'ACTIONS' ? 'bold' : 'medium'}
             color={activeTab === 'ACTIONS' ? theme.colors.primary : theme.colors.textMuted}
           >
-            Action Center {pendingNotifications.length > 0 ? `(${pendingNotifications.length})` : ''}
+            Actions {pendingNotifications.length > 0 ? `(${pendingNotifications.length})` : ''}
           </Text>
         </Pressable>
 
@@ -566,5 +566,75 @@ const styles = StyleSheet.create({
   brandIconImg: {
     width: 32,
     height: 32,
+  },
+  timeframeRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    marginBottom: 14,
+    flexWrap: 'wrap',
+  },
+  timeframePill: {
+    paddingHorizontal: 12,
+    paddingVertical: 6,
+    borderRadius: 20,
+    borderWidth: 1,
+  },
+  analyticsHeroCard: {
+    padding: 20,
+    borderRadius: 20,
+    backgroundColor: '#0F172A',
+    borderColor: 'rgba(56, 189, 248, 0.2)',
+    borderWidth: 1,
+    gap: 4,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.25,
+    shadowRadius: 8,
+    elevation: 4,
+  },
+  heroSubRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    marginTop: 6,
+  },
+  analyticsSectionBlock: {
+    marginTop: 20,
+  },
+  categoryCard: {
+    padding: 14,
+    borderRadius: 14,
+    marginBottom: 10,
+    gap: 10,
+  },
+  categoryHeaderRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+  },
+  categoryDot: {
+    width: 10,
+    height: 10,
+    borderRadius: 5,
+  },
+  progressBarTrack: {
+    height: 6,
+    borderRadius: 3,
+    backgroundColor: 'rgba(255, 255, 255, 0.08)',
+    overflow: 'hidden',
+    width: '100%',
+  },
+  progressBarFill: {
+    height: '100%',
+    borderRadius: 3,
+  },
+  groupSpendCard: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    padding: 14,
+    borderRadius: 14,
+    marginBottom: 8,
   },
 });

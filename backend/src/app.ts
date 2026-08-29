@@ -19,6 +19,8 @@ import { dashboardRoutes } from './modules/dashboard/dashboard.routes';
 import { notificationRoutes } from './modules/notifications/notification.routes';
 import { recurringGroupRoutes, recurringScheduleRoutes } from './modules/recurring/recurring.routes';
 import { realtimeRoutes } from './modules/realtime/realtime.service';
+import { analyticsRoutes } from './modules/analytics/analytics.service';
+import { commentRoutes } from './modules/comments/comment.service';
 
 export const createApp = (): Express => {
   const app = express();
@@ -70,6 +72,8 @@ export const createApp = (): Express => {
   apiV1.use('/groups/:groupId/recurring-schedules', recurringGroupRoutes);
   apiV1.use('/recurring-schedules', recurringScheduleRoutes);
   apiV1.use('/realtime', realtimeRoutes);
+  apiV1.use('/analytics', analyticsRoutes);
+  apiV1.use('/expenses', commentRoutes);
 
   // Mount API v1
   app.use('/api/v1', apiV1);

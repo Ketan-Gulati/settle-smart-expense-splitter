@@ -1,10 +1,10 @@
 import { useEffect, useState, useCallback } from 'react';
-import { View, ScrollView, StyleSheet, ActivityIndicator, Pressable, Alert, RefreshControl } from 'react-native';
+import { View, ScrollView, StyleSheet, ActivityIndicator, Pressable, Alert, RefreshControl, TextInput } from 'react-native';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import { Text, DetailHeader, Avatar, MoneyDisplay, Surface, Button, Icon } from '@/components';
 import { useAppTheme } from '@/hooks/useAppTheme';
 import { SettleApiService } from '@/services/api/settleApi';
-import { ExpenseDTO, UserDTO } from '@/services/api/types';
+import { ExpenseDTO, UserDTO, ExpenseCommentDTO } from '@/services/api/types';
 import { useAppStore } from '@/store/appStore';
 
 export default function ExpenseDetailScreen() {
@@ -12,9 +12,13 @@ export default function ExpenseDetailScreen() {
   const theme = useAppTheme();
   const router = useRouter();
   const notifyDataChanged = useAppStore((s) => s.notifyDataChanged);
+  const dataVersion = useAppStore((s) => s.dataVersion);
 
   const [expense, setExpense] = useState<ExpenseDTO | null>(null);
   const [currentUser, setCurrentUser] = useState<UserDTO | null>(null);
+  const [comments, setComments] = useState<ExpenseCommentDTO[]>([]);
+  const [commentText, setCommentText] = useState('');
+  const [submittingComment, setSubmittingComment] = useState(false);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [deleting, setDeleting] = useState(false);
@@ -46,12 +50,14 @@ export default function ExpenseDetailScreen() {
     if (!id) return;
     try {
       setLoading(true);
-      const [user, exp] = await Promise.all([
+      const [user, exp, cmts] = await Promise.all([
         SettleApiService.getMe(),
         SettleApiService.getExpenseDetails(id),
+        SettleApiService.getExpenseComments(id).catch(() => []),
       ]);
       setCurrentUser(user);
       setExpense(exp);
+      setComments(cmts);
     } catch (err) {
       console.error('Failed to load expense details from backend:', err);
     } finally {
@@ -59,6 +65,38 @@ export default function ExpenseDetailScreen() {
       setRefreshing(false);
     }
   }, [id]);
+
+  const handleSendComment = async () => {
+    const trimmed = commentText.trim();
+    if (!trimmed || !id || submittingComment) return;
+
+    try {
+      setSubmittingComment(true);
+      const newCmt = await SettleApiService.addExpenseComment(id, trimmed);
+      setComments((prev) => [...prev, newCmt]);
+      setCommentText('');
+      notifyDataChanged();
+    } catch (err: any) {
+      Alert.alert('Failed to post comment', err?.message || 'Network error');
+    } finally {
+      setSubmittingComment(false);
+    }
+  };
+
+  const handleDeleteComment = async (commentId: string) => {
+    if (!id) return;
+    try {
+      await SettleApiService.deleteExpenseComment(id, commentId);
+      setComments((prev) => prev.filter((c) => c.id !== commentId));
+      notifyDataChanged();
+    } catch (err: any) {
+      Alert.alert('Error', err?.message || 'Failed to delete comment');
+    }
+  };
+
+  useEffect(() => {
+    loadData();
+  }, [loadData, dataVersion]);
 
   useEffect(() => {
     loadData();
@@ -270,7 +308,100 @@ export default function ExpenseDetailScreen() {
           </Surface>
         )}
 
-        {/* 7. Edit & Delete Actions / Request Edit Access */}
+        {/* 8. Expense Comments & Discussion Thread */}
+        <Surface variant="card" style={styles.commentsContainer}>
+          <View style={styles.commentsHeaderRow}>
+            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
+              <Icon name="chatbubble-outline" size={18} color={theme.colors.primary} />
+              <Text variant="headline" weight="bold">
+                Discussion & Notes
+              </Text>
+            </View>
+            <Text variant="caption" color={theme.colors.textMuted}>
+              {comments.length} {comments.length === 1 ? 'comment' : 'comments'}
+            </Text>
+          </View>
+
+          {/* Comment List */}
+          {comments.length === 0 ? (
+            <View style={styles.emptyCommentsBox}>
+              <Text variant="caption" color={theme.colors.textMuted} style={{ textAlign: 'center' }}>
+                No comments yet. Have a question about this bill? Leave a note below.
+              </Text>
+            </View>
+          ) : (
+            <View style={styles.commentsList}>
+              {comments.map((cmt) => {
+                const isAuthor = currentUser?.id === cmt.userId;
+
+                return (
+                  <View key={cmt.id} style={styles.commentItem}>
+                    <Avatar name={cmt.userName} size="small" />
+                    <View style={styles.commentBody}>
+                      <View style={styles.commentMetaRow}>
+                        <Text variant="caption" weight="bold" color={theme.colors.textPrimary}>
+                          {isAuthor ? 'You' : cmt.userName}
+                        </Text>
+                        <Text variant="caption" color={theme.colors.textMuted} style={{ fontSize: 10 }}>
+                          {new Date(cmt.createdAt).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' })}
+                        </Text>
+                      </View>
+
+                      <Text variant="body" style={styles.commentText}>
+                        {cmt.content}
+                      </Text>
+                    </View>
+
+                    {isAuthor && (
+                      <Pressable
+                        onPress={() => handleDeleteComment(cmt.id)}
+                        style={styles.deleteCommentBtn}
+                        hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+                      >
+                        <Icon name="trash-outline" size={13} color={theme.colors.textMuted} />
+                      </Pressable>
+                    )}
+                  </View>
+                );
+              })}
+            </View>
+          )}
+
+          {/* New Comment Input Field */}
+          <View style={[styles.commentInputRow, { backgroundColor: theme.colors.surfaceSubtle, borderColor: theme.colors.borderSubtle }]}>
+            <TextInput
+              value={commentText}
+              onChangeText={setCommentText}
+              placeholder="Write a comment or question..."
+              placeholderTextColor={theme.colors.textMuted}
+              style={[styles.commentTextInput, { color: theme.colors.textPrimary }]}
+              multiline
+              maxLength={500}
+            />
+            <Pressable
+              onPress={handleSendComment}
+              disabled={submittingComment || !commentText.trim()}
+              style={[
+                styles.sendCommentBtn,
+                {
+                  backgroundColor: commentText.trim() ? theme.colors.primary : 'transparent',
+                },
+              ]}
+            >
+              {submittingComment ? (
+                <ActivityIndicator size="small" color="#FFFFFF" />
+              ) : (
+                <Icon
+                  name="arrow-forward-outline"
+                  size={16}
+                  color={commentText.trim() ? '#FFFFFF' : theme.colors.textMuted}
+                />
+              )}
+            </Pressable>
+          </View>
+        </Surface>
+
+        {/* 9. Edit & Delete Actions / Request Edit Access */}
         <View style={styles.actionsRow}>
           {(!expense.isLocked || isCreatorOrEditor) ? (
             <>
@@ -414,5 +545,73 @@ const styles = StyleSheet.create({
   actionsRow: {
     marginTop: 12,
     gap: 10,
+  },
+  commentsContainer: {
+    padding: 16,
+    borderRadius: 16,
+    gap: 12,
+  },
+  commentsHeaderRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+  },
+  emptyCommentsBox: {
+    paddingVertical: 12,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  commentsList: {
+    gap: 12,
+  },
+  commentItem: {
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    gap: 10,
+  },
+  commentBody: {
+    flex: 1,
+    backgroundColor: 'rgba(255, 255, 255, 0.03)',
+    borderRadius: 12,
+    padding: 10,
+    gap: 2,
+  },
+  commentMetaRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    marginBottom: 2,
+  },
+  commentText: {
+    fontSize: 13,
+    lineHeight: 18,
+  },
+  deleteCommentBtn: {
+    padding: 4,
+    marginTop: 6,
+  },
+  commentInputRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    borderRadius: 14,
+    borderWidth: 1,
+    paddingLeft: 12,
+    paddingRight: 6,
+    paddingVertical: 6,
+    gap: 8,
+    marginTop: 6,
+  },
+  commentTextInput: {
+    flex: 1,
+    fontSize: 13,
+    maxHeight: 80,
+    paddingVertical: 4,
+  },
+  sendCommentBtn: {
+    width: 32,
+    height: 32,
+    borderRadius: 16,
+    alignItems: 'center',
+    justifyContent: 'center',
   },
 });

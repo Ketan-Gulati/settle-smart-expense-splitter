@@ -204,6 +204,40 @@ export const NotificationSideMenu: React.FC<NotificationSideMenuProps> = ({ visi
                 <Icon name="arrow-back" size={16} color={theme.colors.textMuted} style={{ transform: [{ rotate: '180deg' }] }} />
               </View>
             </Pressable>
+
+            {/* 3. Spending Analytics & Insights (3rd Option in Hamburger) */}
+            <Pressable
+              onPress={() => {
+                onClose();
+                router.push('/analytics' as any);
+              }}
+              style={({ pressed }) => [
+                styles.menuItemRow,
+                {
+                  backgroundColor: theme.colors.surfaceSubtle,
+                  borderColor: theme.colors.borderSubtle,
+                  opacity: pressed ? 0.85 : 1,
+                },
+              ]}
+            >
+              <View style={styles.menuItemLeft}>
+                <View style={[styles.iconWrap, { backgroundColor: 'rgba(16, 185, 129, 0.15)' }]}>
+                  <Icon name="flash" size={20} color="#10B981" />
+                </View>
+                <View style={{ gap: 2 }}>
+                  <Text variant="body" weight="semibold" color={theme.colors.textPrimary}>
+                    Spending Analytics & Insights
+                  </Text>
+                  <Text variant="caption" color={theme.colors.textMuted}>
+                    Monthly totals, category breakdown & groups
+                  </Text>
+                </View>
+              </View>
+
+              <View style={styles.menuItemRight}>
+                <Icon name="arrow-back" size={16} color={theme.colors.textMuted} style={{ transform: [{ rotate: '180deg' }] }} />
+              </View>
+            </Pressable>
           </ScrollView>
         </Animated.View>
       </View>

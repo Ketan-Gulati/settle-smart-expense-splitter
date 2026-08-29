@@ -259,3 +259,44 @@ export interface RecurringScheduleDTO {
   createdAt: string;
   updatedAt: string;
 }
+
+export interface ExpenseCommentDTO {
+  id: string;
+  expenseId: string;
+  userId: string;
+  userName: string;
+  userAvatarUrl: string | null;
+  content: string;
+  createdAt: string;
+}
+
+export interface CategorySpendSummaryDTO {
+  category: string;
+  totalMinor: number;
+  percentage: number;
+  expenseCount: number;
+}
+
+export interface GroupSpendSummaryDTO {
+  groupId: string;
+  groupName: string;
+  userShareMinor: number;
+  percentage: number;
+  currency: string;
+}
+
+export interface MonthlyTrendItemDTO {
+  month: string;
+  totalShareMinor: number;
+  paidUpfrontMinor: number;
+}
+
+export interface AnalyticsSummaryDTO {
+  period: string;
+  totalUserShareMinor: number;
+  totalPaidUpfrontMinor: number;
+  monthOverMonthPercentChange: number;
+  categoryBreakdown: CategorySpendSummaryDTO[];
+  groupDistribution: GroupSpendSummaryDTO[];
+  monthlyTrend: MonthlyTrendItemDTO[];
+}

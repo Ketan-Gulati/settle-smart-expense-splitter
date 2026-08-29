@@ -409,4 +409,25 @@ export class SettleApiService {
   public static async deleteRecurringSchedule(scheduleId: string): Promise<void> {
     await ApiClient.delete(`/recurring-schedules/${scheduleId}`);
   }
+
+  // --- Analytics ---
+  public static async getAnalyticsSummary(timeframe: 'month' | 'quarter' | 'year' | 'all' = 'month'): Promise<import('./types').AnalyticsSummaryDTO> {
+    const res = await ApiClient.get<import('./types').AnalyticsSummaryDTO>(`/analytics/summary?timeframe=${timeframe}`);
+    return res.data;
+  }
+
+  // --- Expense Comments ---
+  public static async getExpenseComments(expenseId: string): Promise<import('./types').ExpenseCommentDTO[]> {
+    const res = await ApiClient.get<import('./types').ExpenseCommentDTO[]>(`/expenses/${expenseId}/comments`);
+    return res.data;
+  }
+
+  public static async addExpenseComment(expenseId: string, content: string): Promise<import('./types').ExpenseCommentDTO> {
+    const res = await ApiClient.post<import('./types').ExpenseCommentDTO>(`/expenses/${expenseId}/comments`, { content });
+    return res.data;
+  }
+
+  public static async deleteExpenseComment(expenseId: string, commentId: string): Promise<void> {
+    await ApiClient.delete(`/expenses/${expenseId}/comments/${commentId}`);
+  }
 }

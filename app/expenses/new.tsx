@@ -175,10 +175,28 @@ export default function NewOrEditExpenseScreen() {
       setGroups(allGroups);
       await loadUserCustomCategories(user.id);
 
-      // 100% Dynamic & Personalized Learning:
-      // Aggregate real expense patterns directly from user's history
+      // Personalized Repeated Description Learning:
+      // Track and aggregate frequency counts persistently per user
+      const freqStorageKey = `user_desc_frequency_${user.id}`;
+      let storedFreq: Record<string, { count: number; groupId?: string; groupName?: string; lastUsed?: number }> = {};
+      try {
+        const raw = Platform.OS === 'web' ? localStorage.getItem(freqStorageKey) : await SecureStore.getItemAsync(freqStorageKey);
+        if (raw) storedFreq = JSON.parse(raw);
+      } catch { }
+
       const titleFrequency = new Map<string, { count: number; groupId: string; groupName: string; lastUsed: number }>();
 
+      // Load stored frequencies
+      Object.entries(storedFreq).forEach(([key, info]) => {
+        titleFrequency.set(key.toLowerCase(), {
+          count: info.count || 1,
+          groupId: info.groupId || '',
+          groupName: info.groupName || '',
+          lastUsed: info.lastUsed || Date.now(),
+        });
+      });
+
+      // Overlay activity feed counts
       for (const act of activityFeed) {
         if (act.type === 'EXPENSE' && act.title && act.groupId) {
           const cleanTitle = act.title.trim();
@@ -204,21 +222,22 @@ export default function NewOrEditExpenseScreen() {
         }
       }
 
-      // Sort personalized suggestions by frequency and recency
+      // Filter to only descriptions that repeat (count >= 2), sorted by most frequent and recent, capped at top 4
       const sortedLearned = Array.from(titleFrequency.entries())
+        .filter(([_, info]) => info.count >= 2) // ONLY show repeated expenses
         .map(([titleLower, info]) => {
-          // Format capitalized title from original
           const matchingAct = activityFeed.find((a) => a.title?.trim().toLowerCase() === titleLower);
           return {
             title: matchingAct?.title?.trim() || titleLower,
+            count: info.count,
             groupId: info.groupId,
             groupName: info.groupName,
             splitMethod: 'EQUAL' as const,
-            score: info.count * 1000 + (info.lastUsed / 1000000000),
+            score: info.count * 10000 + (info.lastUsed / 1000000000),
           };
         })
         .sort((a, b) => b.score - a.score)
-        .slice(0, 6);
+        .slice(0, 4); // Max 4 top repeated recommendations
 
       setSmartPresets(sortedLearned);
 
@@ -342,7 +361,7 @@ export default function NewOrEditExpenseScreen() {
   const groupCurrency = currentGroup?.currency || 'INR';
   const rawInputAmount = parseFloat(amountStr) || 0;
   const isForeignCurrency = selectedCurrency.toUpperCase() !== groupCurrency.toUpperCase();
-  
+
   // Calculate converted group amount using exchange rate
   const userSpecifiedRate = customRate ? parseFloat(customRate) : undefined;
   const { convertedAmount, rateUsed } = convertToGroupCurrency(
@@ -453,6 +472,34 @@ export default function NewOrEditExpenseScreen() {
         }
       }
 
+      // Track description frequency count persistently for this user
+      if (currentUser && description.trim()) {
+        try {
+          const freqStorageKey = `user_desc_frequency_${currentUser.id}`;
+          let storedFreq: Record<string, { count: number; groupId?: string; groupName?: string; lastUsed?: number }> = {};
+          const raw = Platform.OS === 'web' ? localStorage.getItem(freqStorageKey) : await SecureStore.getItemAsync(freqStorageKey);
+          if (raw) storedFreq = JSON.parse(raw);
+
+          const descKey = description.trim().toLowerCase();
+          const existing = storedFreq[descKey] || { count: 0 };
+          storedFreq[descKey] = {
+            count: existing.count + 1,
+            groupId: selectedGroupId,
+            groupName: currentGroup?.name,
+            lastUsed: Date.now(),
+          };
+
+          const jsonStr = JSON.stringify(storedFreq);
+          if (Platform.OS === 'web') {
+            localStorage.setItem(freqStorageKey, jsonStr);
+          } else {
+            await SecureStore.setItemAsync(freqStorageKey, jsonStr);
+          }
+        } catch (freqErr) {
+          console.warn('Failed to update description frequency:', freqErr);
+        }
+      }
+
       notifyDataChanged();
       if (router.canGoBack()) {
         router.back();
@@ -494,292 +541,305 @@ export default function NewOrEditExpenseScreen() {
       <ScrollView contentContainerStyle={styles.content} showsVerticalScrollIndicator={false}>
         {/* 2. Group & Category Dropdown Row */}
         <View style={styles.contextRow}>
-          <Pressable
-            onPress={() => setGroupModalVisible(true)}
-            style={[
-              styles.groupSelectorPill,
-              {
-                borderColor: theme.colors.border,
-                backgroundColor: theme.colors.surfaceSubtle,
-              },
-            ]}
-          >
-            <Text variant="bodySecondary" color={theme.colors.textPrimary} weight="bold">
-              👥 {currentGroup?.name || 'Select Group'} ▼
-            </Text>
-          </Pressable>
 
-          {/* Subtle Category Dropdown Pill */}
-          <Pressable
-            onPress={() => {
-              setCategorySearchQuery('');
-              setCategoryModalVisible(true);
-            }}
-            style={[
-              styles.categoryDropdownPill,
-              {
-                borderColor: theme.colors.border,
-                backgroundColor: theme.colors.surfaceSubtle,
-              },
-            ]}
-          >
-            <Text variant="bodySecondary" color={theme.colors.textPrimary} weight="medium">
-              🏷️ {allCombinedCategories.find((c) => c.id === category)?.label || 'Category'} ▼
-            </Text>
-          </Pressable>
+
+          {/* Category Dropdown Pill - Only shown once group selected */}
+          {!!selectedGroupId && (
+            <Pressable
+              onPress={() => {
+                setCategorySearchQuery('');
+                setCategoryModalVisible(true);
+              }}
+              style={[
+                styles.categoryDropdownPill,
+                {
+                  borderColor: theme.colors.border,
+                  backgroundColor: theme.colors.surfaceSubtle,
+                },
+              ]}
+            >
+              <Text variant="bodySecondary" color={theme.colors.textPrimary} weight="medium">
+                🏷️ {allCombinedCategories.find((c) => c.id === category)?.label || 'Category'} ▼
+              </Text>
+            </Pressable>
+          )}
         </View>
 
-        {/* 3. Description Input */}
-        <View style={styles.descInputContainer}>
-          <TextInput
-            placeholder="What did you pay for? (e.g. Dinner, Uber, Fuel...)"
-            placeholderTextColor={theme.colors.textMuted}
-            value={description}
-            onChangeText={setDescription}
-            style={[
-              styles.descTextInput,
-              {
-                color: theme.colors.textPrimary,
-                borderColor: theme.colors.borderSubtle,
-                backgroundColor: theme.colors.surface,
-              },
-            ]}
-          />
-        </View>
-
-        {/* 3.6. Smart Suggestions Bar (Insanely Fast 1-Tap Defaults) */}
-        {!expenseId && smartPresets.length > 0 && (
-          <ScrollView
-            horizontal
-            showsHorizontalScrollIndicator={false}
-            contentContainerStyle={styles.smartPresetsRow}
-          >
-            {smartPresets.map((preset, idx) => (
-              <Pressable
-                key={idx}
-                onPress={async () => {
-                  setDescription(preset.title);
-                  if (preset.groupId) {
-                    await handleSelectGroup(preset.groupId);
-                  }
-                }}
+        {/* PROMPT BANNER WHEN NO GROUP SELECTED */}
+        {!selectedGroupId ? (
+          <Surface variant="subtle" style={styles.selectGroupPromptCard}>
+            <View style={styles.groupPromptIconWrap}>
+              <Icon name="people-outline" size={32} color={theme.colors.primary} />
+            </View>
+            <Text variant="headline" weight="bold" style={{ marginTop: 12 }}>
+              Choose a Group First
+            </Text>
+            <Text variant="caption" color={theme.colors.textMuted} style={{ textAlign: 'center', marginTop: 4, maxWidth: 260 }}>
+              Select which group or trip this expense belongs to so we can load participants and currency.
+            </Text>
+            <Pressable
+              onPress={() => setGroupModalVisible(true)}
+              style={[styles.selectGroupPromptBtn, { backgroundColor: theme.colors.primary }]}
+            >
+              <Text variant="body" weight="bold" color="#FFFFFF">
+                Select Group
+              </Text>
+            </Pressable>
+          </Surface>
+        ) : (
+          <>
+            {/* 3. Description Input */}
+            <View style={styles.descInputContainer}>
+              <TextInput
+                placeholder="What did you pay for? (e.g. Dinner, Uber, Fuel...)"
+                placeholderTextColor={theme.colors.textMuted}
+                value={description}
+                onChangeText={setDescription}
                 style={[
-                  styles.smartPresetPill,
+                  styles.descTextInput,
                   {
-                    backgroundColor: description.toLowerCase() === preset.title.toLowerCase()
-                      ? theme.colors.primary
-                      : theme.colors.surfaceSubtle,
-                    borderColor: description.toLowerCase() === preset.title.toLowerCase()
-                      ? theme.colors.primary
-                      : theme.colors.border,
+                    color: theme.colors.textPrimary,
+                    borderColor: theme.colors.borderSubtle,
+                    backgroundColor: theme.colors.surface,
+                  },
+                ]}
+              />
+            </View>
+
+            {/* 3.6. Smart Suggestions Bar (Top 4 Repeated Descriptions) */}
+            {!expenseId && smartPresets.length > 0 && (
+              <ScrollView
+                horizontal
+                showsHorizontalScrollIndicator={false}
+                contentContainerStyle={styles.smartPresetsRow}
+              >
+                {smartPresets.map((preset, idx) => (
+                  <Pressable
+                    key={idx}
+                    onPress={async () => {
+                      setDescription(preset.title);
+                      if (preset.groupId) {
+                        await handleSelectGroup(preset.groupId);
+                      }
+                    }}
+                    style={[
+                      styles.smartPresetPill,
+                      {
+                        backgroundColor: description.toLowerCase() === preset.title.toLowerCase()
+                          ? theme.colors.primary
+                          : theme.colors.surfaceSubtle,
+                        borderColor: description.toLowerCase() === preset.title.toLowerCase()
+                          ? theme.colors.primary
+                          : theme.colors.border,
+                      },
+                    ]}
+                  >
+                    <Text
+                      variant="caption"
+                      weight="semibold"
+                      color={
+                        description.toLowerCase() === preset.title.toLowerCase()
+                          ? '#FFFFFF'
+                          : theme.colors.textSecondary
+                      }
+                    >
+                      ⚡ {preset.title}
+                    </Text>
+                  </Pressable>
+                ))}
+              </ScrollView>
+            )}
+
+            {/* 4. Hero Amount Display & Currency Selector */}
+            <View style={styles.heroAmountSection}>
+              <Pressable
+                onPress={() => setCurrencyModalVisible(true)}
+                style={[styles.currencyPill, { backgroundColor: theme.colors.surfaceSubtle, borderColor: theme.colors.border }]}
+                hitSlop={8}
+              >
+                <Text variant="headline" weight="bold" color={theme.colors.primary}>
+                  {getCurrencySymbol(selectedCurrency)}
+                </Text>
+                <Text variant="caption" weight="bold" color={theme.colors.textMuted} style={{ fontSize: 11 }}>
+                  {selectedCurrency} ▼
+                </Text>
+              </Pressable>
+
+              <Text style={[styles.amountValueText, { color: theme.colors.textPrimary }]}>
+                {amountStr ? Number(amountStr).toLocaleString('en-IN') : '0'}
+              </Text>
+            </View>
+
+            {/* 4.5 Multi-Currency Conversion Info Card */}
+            {isForeignCurrency && rawInputAmount > 0 && (
+              <Surface variant="subtle" style={styles.conversionBanner}>
+                <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' }}>
+                  <View style={{ gap: 2 }}>
+                    <Text variant="caption" weight="bold" color={theme.colors.textPrimary}>
+                      Converted to Group Currency: ₹{convertedAmount.toLocaleString('en-IN', { minimumFractionDigits: 2 })}
+                    </Text>
+                    <Text variant="caption" color={theme.colors.textMuted}>
+                      Rate: 1 {selectedCurrency} = ₹{rateUsed.toFixed(2)} INR
+                    </Text>
+                  </View>
+                  <Pressable
+                    onPress={() => setCurrencyModalVisible(true)}
+                    style={styles.editRateBtn}
+                  >
+                    <Text variant="caption" weight="bold" color={theme.colors.primary}>
+                      Edit Rate
+                    </Text>
+                  </Pressable>
+                </View>
+              </Surface>
+            )}
+
+            {/* 5. Paid By Row Card */}
+            <Pressable
+              onPress={() => setPayerModalVisible(true)}
+              style={[styles.actionRowCard, { borderColor: theme.colors.borderSubtle }]}
+            >
+              <View style={styles.payerAvatarInitial}>
+                <Text variant="title" weight="bold">
+                  {getPayerName().charAt(0).toUpperCase()}
+                </Text>
+              </View>
+              <View style={styles.actionCardDetails}>
+                <Text variant="body" weight="semibold">
+                  Paid by {getPayerName()}
+                </Text>
+                <Text variant="caption" color={theme.colors.textMuted}>
+                  ₹{(amountMinor / 100).toLocaleString('en-IN')}
+                </Text>
+              </View>
+              <Text variant="bodySecondary" color={theme.colors.textSecondary} weight="medium">
+                Edit
+              </Text>
+            </Pressable>
+
+            {/* 6. Split Summary Row Card */}
+            <Pressable
+              onPress={() => setSplitModalVisible(true)}
+              style={[styles.actionRowCard, { borderColor: theme.colors.borderSubtle }]}
+            >
+              <View style={styles.avatarStackMini}>
+                {selectedParticipantIds.slice(0, 3).map((id, idx) => {
+                  const m = currentGroup?.members?.find((mem) => mem.userId === id);
+                  return (
+                    <View
+                      key={id}
+                      style={[
+                        styles.miniAvatar,
+                        {
+                          marginLeft: idx === 0 ? 0 : -8,
+                          backgroundColor: idx === 0 ? '#E2E8F0' : idx === 1 ? '#FEF3C7' : '#DBEAFE',
+                        },
+                      ]}
+                    >
+                      <Text variant="caption" weight="bold">
+                        {m?.name.charAt(0).toUpperCase() || 'M'}
+                      </Text>
+                    </View>
+                  );
+                })}
+                {selectedParticipantIds.length > 3 ? (
+                  <View style={[styles.miniAvatar, { marginLeft: -8, backgroundColor: '#E2E8F0' }]}>
+                    <Text variant="caption" weight="bold">
+                      +{selectedParticipantIds.length - 3}
+                    </Text>
+                  </View>
+                ) : null}
+              </View>
+
+              <View style={styles.actionCardDetails}>
+                <Text variant="body" weight="semibold">
+                  Split {splitMethod.charAt(0).toUpperCase() + splitMethod.slice(1).toLowerCase()}
+                </Text>
+                <Text variant="caption" color={theme.colors.textMuted}>
+                  {selectedParticipantIds.length} people · ₹
+                  {(perPersonAmountMinor / 100).toLocaleString('en-IN')} each
+                </Text>
+              </View>
+              <Text variant="bodySecondary" color={theme.colors.textSecondary} weight="medium">
+                Edit
+              </Text>
+            </Pressable>
+
+            {/* Locked Expense Toggle */}
+            <Pressable
+              onPress={() => setIsLocked((prev) => !prev)}
+              style={[
+                styles.lockToggleCard,
+                {
+                  backgroundColor: isLocked ? 'rgba(59, 130, 246, 0.08)' : theme.colors.surfaceSubtle,
+                  borderColor: isLocked ? theme.colors.primary : theme.colors.borderSubtle,
+                },
+              ]}
+            >
+              <View style={{ flexDirection: 'row', alignItems: 'center', gap: 12, flex: 1 }}>
+                <Text style={{ fontSize: 20 }}>{isLocked ? '🔒' : '🔓'}</Text>
+                <View style={{ flex: 1, gap: 2 }}>
+                  <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+                    <Text variant="body" weight="semibold" color={theme.colors.textPrimary}>
+                      Lock Expense from edits
+                    </Text>
+                    {isLocked && (
+                      <View style={[styles.lockedBadgeMini, { backgroundColor: theme.colors.primary }]}>
+                        <Text variant="caption" weight="bold" color="#FFFFFF" style={{ fontSize: 10 }}>
+                          PROTECTED
+                        </Text>
+                      </View>
+                    )}
+                  </View>
+                  <Text variant="caption" color={theme.colors.textMuted} style={{ fontSize: 11 }}>
+                    {isLocked
+                      ? 'Only you can edit this. Others must request edit access from you.'
+                      : 'Anyone in the group can edit or delete this expense.'}
+                  </Text>
+                </View>
+              </View>
+              <View
+                style={[
+                  styles.togglePillSwitch,
+                  {
+                    backgroundColor: isLocked ? theme.colors.primary : theme.colors.border,
                   },
                 ]}
               >
-                <Text
-                  variant="caption"
-                  weight="semibold"
-                  color={
-                    description.toLowerCase() === preset.title.toLowerCase()
-                      ? '#FFFFFF'
-                      : theme.colors.textSecondary
-                  }
-                >
-                  ⚡ {preset.title}
-                </Text>
-              </Pressable>
-            ))}
-          </ScrollView>
-        )}
-
-        {/* 4. Hero Amount Display & Currency Selector */}
-        <View style={styles.heroAmountSection}>
-          <Pressable
-            onPress={() => setCurrencyModalVisible(true)}
-            style={[styles.currencyPill, { backgroundColor: theme.colors.surfaceSubtle, borderColor: theme.colors.border }]}
-            hitSlop={8}
-          >
-            <Text variant="headline" weight="bold" color={theme.colors.primary}>
-              {getCurrencySymbol(selectedCurrency)}
-            </Text>
-            <Text variant="caption" weight="bold" color={theme.colors.textMuted} style={{ fontSize: 11 }}>
-              {selectedCurrency} ▼
-            </Text>
-          </Pressable>
-
-          <Text style={[styles.amountValueText, { color: theme.colors.textPrimary }]}>
-            {amountStr ? Number(amountStr).toLocaleString('en-IN') : '0'}
-          </Text>
-        </View>
-
-        {/* 4.5 Multi-Currency Conversion Info Card */}
-        {isForeignCurrency && rawInputAmount > 0 && (
-          <Surface variant="subtle" style={styles.conversionBanner}>
-            <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' }}>
-              <View style={{ gap: 2 }}>
-                <Text variant="caption" weight="bold" color={theme.colors.textPrimary}>
-                  Converted to Group Currency: ₹{convertedAmount.toLocaleString('en-IN', { minimumFractionDigits: 2 })}
-                </Text>
-                <Text variant="caption" color={theme.colors.textMuted}>
-                  Rate: 1 {selectedCurrency} = ₹{rateUsed.toFixed(2)} INR
-                </Text>
-              </View>
-              <Pressable
-                onPress={() => setCurrencyModalVisible(true)}
-                style={styles.editRateBtn}
-              >
-                <Text variant="caption" weight="bold" color={theme.colors.primary}>
-                  Edit Rate
-                </Text>
-              </Pressable>
-            </View>
-          </Surface>
-        )}
-
-        {/* 5. Paid By Row Card */}
-        <Pressable
-          onPress={() => setPayerModalVisible(true)}
-          style={[styles.actionRowCard, { borderColor: theme.colors.borderSubtle }]}
-        >
-          <View style={styles.payerAvatarInitial}>
-            <Text variant="title" weight="bold">
-              {getPayerName().charAt(0).toUpperCase()}
-            </Text>
-          </View>
-          <View style={styles.actionCardDetails}>
-            <Text variant="body" weight="semibold">
-              Paid by {getPayerName()}
-            </Text>
-            <Text variant="caption" color={theme.colors.textMuted}>
-              ₹{(amountMinor / 100).toLocaleString('en-IN')}
-            </Text>
-          </View>
-          <Text variant="bodySecondary" color={theme.colors.textSecondary} weight="medium">
-            Edit
-          </Text>
-        </Pressable>
-
-        {/* 6. Split Summary Row Card */}
-        <Pressable
-          onPress={() => setSplitModalVisible(true)}
-          style={[styles.actionRowCard, { borderColor: theme.colors.borderSubtle }]}
-        >
-          <View style={styles.avatarStackMini}>
-            {selectedParticipantIds.slice(0, 3).map((id, idx) => {
-              const m = currentGroup?.members?.find((mem) => mem.userId === id);
-              return (
                 <View
-                  key={id}
                   style={[
-                    styles.miniAvatar,
+                    styles.toggleKnob,
                     {
-                      marginLeft: idx === 0 ? 0 : -8,
-                      backgroundColor: idx === 0 ? '#E2E8F0' : idx === 1 ? '#FEF3C7' : '#DBEAFE',
+                      transform: [{ translateX: isLocked ? 18 : 2 }],
                     },
                   ]}
-                >
-                  <Text variant="caption" weight="bold">
-                    {m?.name.charAt(0).toUpperCase() || 'M'}
-                  </Text>
-                </View>
-              );
-            })}
-            {selectedParticipantIds.length > 3 && (
-              <View style={[styles.miniAvatar, { marginLeft: -8, backgroundColor: '#E2E8F0' }]}>
-                <Text variant="caption" weight="bold">
-                  +{selectedParticipantIds.length - 3}
-                </Text>
+                />
               </View>
-            )}
-          </View>
+            </Pressable>
 
-          <View style={styles.actionCardDetails}>
-            <Text variant="body" weight="semibold">
-              Split {splitMethod.charAt(0).toUpperCase() + splitMethod.slice(1).toLowerCase()}
-            </Text>
-            <Text variant="caption" color={theme.colors.textMuted}>
-              {selectedParticipantIds.length} people · ₹
-              {(perPersonAmountMinor / 100).toLocaleString('en-IN')} each
-            </Text>
-          </View>
-          <Text variant="bodySecondary" color={theme.colors.textSecondary} weight="medium">
-            Edit
-          </Text>
-        </Pressable>
-
-        {/* 6.5. Locked Expense Toggle (Only creator can edit unless edit access requested) */}
-        <Pressable
-          onPress={() => setIsLocked((prev) => !prev)}
-          style={[
-            styles.lockToggleCard,
-            {
-              backgroundColor: isLocked ? 'rgba(59, 130, 246, 0.08)' : theme.colors.surfaceSubtle,
-              borderColor: isLocked ? theme.colors.primary : theme.colors.borderSubtle,
-            },
-          ]}
-        >
-          <View style={{ flexDirection: 'row', alignItems: 'center', gap: 12, flex: 1 }}>
-            <Text style={{ fontSize: 20 }}>{isLocked ? '🔒' : '🔓'}</Text>
-            <View style={{ flex: 1, gap: 2 }}>
-              <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
-                <Text variant="body" weight="semibold" color={theme.colors.textPrimary}>
-                  Lock Expense from edits
-                </Text>
-                {isLocked && (
-                  <View style={[styles.lockedBadgeMini, { backgroundColor: theme.colors.primary }]}>
-                    <Text variant="caption" weight="bold" color="#FFFFFF" style={{ fontSize: 10 }}>
-                      PROTECTED
-                    </Text>
-                  </View>
-                )}
-              </View>
-              <Text variant="caption" color={theme.colors.textMuted} style={{ fontSize: 11 }}>
-                {isLocked
-                  ? 'Only you can edit this. Others must request edit access from you.'
-                  : 'Anyone in the group can edit or delete this expense.'}
+            {error && (
+              <Text variant="caption" color={theme.colors.negative} align="center">
+                {error}
               </Text>
+            )}
+
+            {/* 7. Keypad strictly integrated */}
+            <View style={styles.keypadWrapper}>
+              <NumericKeypad onKeyPress={handleKeyPress} onDelete={handleDelete} />
             </View>
-          </View>
-          <View
-            style={[
-              styles.togglePillSwitch,
-              {
-                backgroundColor: isLocked ? theme.colors.primary : theme.colors.border,
-              },
-            ]}
-          >
-            <View
-              style={[
-                styles.toggleKnob,
-                {
-                  transform: [{ translateX: isLocked ? 18 : 2 }],
-                  backgroundColor: '#FFFFFF',
-                },
-              ]}
-            />
-          </View>
-        </Pressable>
 
-        {error && (
-          <Text variant="caption" color={theme.colors.negative} align="center">
-            {error}
-          </Text>
+            {/* 8. Save Expense CTA */}
+            <Pressable
+              onPress={handleSave}
+              disabled={saving}
+              style={[styles.saveExpenseBtn, { backgroundColor: theme.colors.primary }]}
+            >
+              <Text variant="title" weight="bold" color={theme.colors.primaryForeground}>
+                {saving ? 'Saving...' : expenseId ? 'Update Expense ✓' : 'Save Expense ✓'}
+              </Text>
+            </Pressable>
+          </>
         )}
-
-        {/* 7. Keypad strictly integrated */}
-        <View style={styles.keypadWrapper}>
-          <NumericKeypad onKeyPress={handleKeyPress} onDelete={handleDelete} />
-        </View>
-
-        {/* 8. Save Expense CTA */}
-        <Pressable
-          onPress={handleSave}
-          disabled={saving}
-          style={[styles.saveExpenseBtn, { backgroundColor: theme.colors.primary }]}
-        >
-          <Text variant="title" weight="bold" color={theme.colors.primaryForeground}>
-            {saving ? 'Saving...' : expenseId ? 'Update Expense ✓' : 'Save Expense ✓'}
-          </Text>
-        </Pressable>
       </ScrollView>
 
       {/* Group Selector Modal */}
@@ -1255,6 +1315,30 @@ const styles = StyleSheet.create({
     paddingVertical: 8,
     borderRadius: 20,
     borderWidth: 1,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  selectGroupPromptCard: {
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingVertical: 36,
+    paddingHorizontal: 24,
+    borderRadius: 20,
+    marginTop: 20,
+  },
+  groupPromptIconWrap: {
+    width: 64,
+    height: 64,
+    borderRadius: 32,
+    backgroundColor: 'rgba(59, 130, 246, 0.12)',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  selectGroupPromptBtn: {
+    marginTop: 20,
+    paddingHorizontal: 24,
+    paddingVertical: 12,
+    borderRadius: 14,
   },
   descInputContainer: {
     marginTop: 4,
@@ -1505,6 +1589,7 @@ const styles = StyleSheet.create({
     width: 22,
     height: 22,
     borderRadius: 11,
+    backgroundColor: '#FFFFFF',
     shadowColor: '#000',
     shadowOffset: { width: 0, height: 1 },
     shadowOpacity: 0.2,

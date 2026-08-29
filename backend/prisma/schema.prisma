@@ -55,6 +55,7 @@ model User {
   settlementsSent         Settlement[]             @relation("SettlementSender")
   settlementsReceived     Settlement[]             @relation("SettlementReceiver")
   auditEventsTriggered    AuditEvent[]             @relation("UserAuditEvents")
+  comments                ExpenseComment[]
 
   @@index([emailNormalized])
   @@index([isActive])
@@ -242,6 +243,7 @@ model Expense {
   payer             User                      @relation("ExpensePayer", fields: [paidByUserId], references: [id], onDelete: Restrict)
   splits            ExpenseSplit[]
   recurringSchedule RecurringExpenseSchedule? @relation(fields: [recurringScheduleId], references: [id], onDelete: SetNull)
+  comments          ExpenseComment[]
 
   @@unique([recurringScheduleId, occurrenceDate])
   @@index([groupId, createdAt(sort: Desc)])
@@ -338,4 +340,22 @@ model AuditEvent {
   @@index([entityType, entityId])
   @@index([eventType, createdAt(sort: Desc)])
   @@map("audit_events")
+}
+
+model ExpenseComment {
+  id        String    @id @default(uuid()) @db.Uuid
+  expenseId String    @map("expense_id") @db.Uuid
+  userId    String    @map("user_id") @db.Uuid
+  content   String    @db.Text
+  createdAt DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt DateTime  @updatedAt @map("updated_at") @db.Timestamptz(6)
+  deletedAt DateTime? @map("deleted_at") @db.Timestamptz(6)
+
+  // Relationships
+  expense Expense @relation(fields: [expenseId], references: [id], onDelete: Cascade)
+  user    User    @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([expenseId, createdAt(sort: Asc)])
+  @@index([userId])
+  @@map("expense_comments")
 }
